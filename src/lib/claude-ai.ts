@@ -123,10 +123,29 @@ JSON만 출력: {"name":"...","brand":"...또는 null","spec":"...또는 null"}`
     })
 
     const text = (msg.content[0] as any).text?.trim() ?? ''
-    const json = JSON.parse(text)
-    if (typeof json.name !== 'string') return null
+    const json = extractJson(text)
+    if (!json || typeof json.name !== 'string') return null
     return json
+  } catch (e) {
+    console.error('[Claude] parseProductName 실패:', e)
+    return null
+  }
+}
+
+// Claude 응답에서 JSON 추출 (코드펜스 ```json ... ``` 또는 본문 중 첫 {…} 블록 허용)
+function extractJson(text: string): any | null {
+  if (!text) return null
+  // 코드펜스 제거
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  const body = fence ? fence[1].trim() : text
+  try {
+    return JSON.parse(body)
   } catch {
+    // 본문에서 첫 번째 중괄호 객체만 추출 시도
+    const m = body.match(/\{[\s\S]*\}/)
+    if (m) {
+      try { return JSON.parse(m[0]) } catch { return null }
+    }
     return null
   }
 }
