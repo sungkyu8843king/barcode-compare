@@ -76,17 +76,21 @@ export async function insertSearchLog(barcode: string, productName: string | nul
   } catch { /* non-critical */ }
 }
 
-// 최근 검색 기록 (24시간, 바코드별 중복 제거)
+// 최근 검색 기록 (24시간, 바코드별 집계)
 export async function getRecentSearchLogs(limit = 30) {
   try {
     return await sql`
-      SELECT DISTINCT ON (barcode)
-        barcode, product_name, product_image, searched_at,
-        COUNT(*) OVER (PARTITION BY barcode) AS search_count
+      SELECT
+        barcode,
+        MAX(product_name)  AS product_name,
+        MAX(product_image) AS product_image,
+        MAX(searched_at)   AS searched_at,
+        COUNT(*)           AS search_count
       FROM search_logs
       WHERE product_name IS NOT NULL
         AND searched_at > NOW() - INTERVAL '24 hours'
-      ORDER BY barcode, searched_at DESC
+      GROUP BY barcode
+      ORDER BY MAX(searched_at) DESC
       LIMIT ${limit}
     `
   } catch { return [] }

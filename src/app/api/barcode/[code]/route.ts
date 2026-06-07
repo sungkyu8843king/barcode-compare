@@ -145,8 +145,8 @@ export async function GET(
       fetchedAt: new Date().toISOString(),
     }
 
-    // 검색 기록 저장 (비차단)
-    insertSearchLog(barcode, product?.name ?? null, product?.image_url ?? null).catch(() => {})
+    // 검색 기록 저장 (응답 전에 완료해야 카운트가 정확함)
+    await insertSearchLog(barcode, product?.name ?? null, product?.image_url ?? null)
 
     return NextResponse.json(result)
   } catch (error) {
