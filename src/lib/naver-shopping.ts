@@ -67,14 +67,12 @@ export interface NaverSearchResult {
   inferredCategory: string | null
 }
 
-export async function searchByBarcode(barcode: string, productName?: string): Promise<NaverSearchResult> {
+export async function searchByBarcode(barcode: string, productName?: string, englishNameHint?: string): Promise<NaverSearchResult> {
   let items: NaverShoppingItem[] = []
-  let searchedByName = false
 
-  // 1순위: 제품명으로 검색 (DB에 이름 있을 때)
+  // 1순위: 제품명으로 검색 (DB에 한국어 이름 있을 때)
   if (productName && productName !== barcode) {
     items = await searchNaverShopping(productName, 20)
-    searchedByName = true
   }
 
   // 2순위: 바코드 번호로 검색
@@ -82,7 +80,12 @@ export async function searchByBarcode(barcode: string, productName?: string): Pr
     items = await searchNaverShopping(barcode, 20)
   }
 
-  // 3순위: 한국 바코드(880*)면 브랜드명으로 fallback
+  // 3순위: 영어 이름 힌트로 검색 (한국 바코드인데 DB에 영어 이름만 있을 때)
+  if (items.length === 0 && englishNameHint) {
+    items = await searchNaverShopping(englishNameHint, 20)
+  }
+
+  // 4순위: 한국 바코드(880*)면 브랜드명으로 fallback
   if (items.length === 0 && barcode.startsWith('880')) {
     const brand = getBrandFromBarcode(barcode)
     if (brand) {

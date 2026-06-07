@@ -19,6 +19,8 @@ export interface PriceSnapshot {
   seller_name: string | null
   in_stock: boolean
   fetched_at: string
+  shipping_fee?: number | null    // undefined = 정보 없음, 0 = 무료, >0 = 유료
+  is_rocket?: boolean             // 쿠팡 로켓배송 여부
 }
 
 export type Platform = 'naver' | 'coupang' | '11st' | 'gmarket' | 'auction'

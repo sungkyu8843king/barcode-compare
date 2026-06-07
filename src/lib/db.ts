@@ -66,6 +66,56 @@ export async function insertPrices(prices: Array<{
   }
 }
 
+// 검색 기록 추가 (비차단)
+export async function insertSearchLog(barcode: string, productName: string | null, productImage: string | null) {
+  try {
+    await sql`
+      INSERT INTO search_logs (barcode, product_name, product_image)
+      VALUES (${barcode}, ${productName}, ${productImage})
+    `
+  } catch { /* non-critical */ }
+}
+
+// 최근 검색 기록 (24시간, 바코드별 중복 제거)
+export async function getRecentSearchLogs(limit = 30) {
+  try {
+    return await sql`
+      SELECT DISTINCT ON (barcode)
+        barcode, product_name, product_image, searched_at,
+        COUNT(*) OVER (PARTITION BY barcode) AS search_count
+      FROM search_logs
+      WHERE product_name IS NOT NULL
+        AND searched_at > NOW() - INTERVAL '24 hours'
+      ORDER BY barcode, searched_at DESC
+      LIMIT ${limit}
+    `
+  } catch { return [] }
+}
+
+// 제품 등록 신청 저장
+export async function insertProductRequest(barcode: string, imageData: string | null) {
+  try {
+    const rows = await sql`
+      INSERT INTO product_requests (barcode, image_data)
+      VALUES (${barcode}, ${imageData})
+      RETURNING *
+    `
+    return rows[0]
+  } catch { return null }
+}
+
+// 신규 등록 제품 (이미지 있는 것 우선)
+export async function getNewProducts(limit = 12) {
+  try {
+    return await sql`
+      SELECT barcode, name, brand, image_url, created_at
+      FROM products
+      ORDER BY created_at DESC
+      LIMIT ${limit}
+    `
+  } catch { return [] }
+}
+
 // 제품 목록 검색
 export async function searchProducts(q: string, limit: number, offset: number) {
   if (q) {

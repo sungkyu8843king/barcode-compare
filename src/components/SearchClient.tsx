@@ -1,10 +1,26 @@
 'use client'
 
-import { useState, lazy, Suspense } from 'react'
+import { useState, lazy, Suspense, useEffect, useRef, useCallback } from 'react'
 import Image from 'next/image'
 import { BarcodeSearchResult, PLATFORMS } from '@/types'
 
 const BarcodeScanner = lazy(() => import('./BarcodeScanner'))
+
+interface SearchLog {
+  barcode: string
+  product_name: string
+  product_image: string | null
+  searched_at: string
+  search_count: string
+}
+
+interface NewProduct {
+  barcode: string
+  name: string
+  brand: string | null
+  image_url: string | null
+  created_at: string
+}
 
 interface SearchClientProps {
   userEmail?: string
@@ -18,6 +34,34 @@ export default function SearchClient({ tier }: SearchClientProps) {
   const [error, setError] = useState<string | null>(null)
   const [limitExceeded, setLimitExceeded] = useState(false)
   const [scanning, setScanning] = useState(false)
+
+  const [recentSearches, setRecentSearches] = useState<SearchLog[]>([])
+  const [newProducts, setNewProducts] = useState<NewProduct[]>([])
+
+  const [showRegistration, setShowRegistration] = useState(false)
+  const [registrationImage, setRegistrationImage] = useState<string | null>(null)
+  const [registering, setRegistering] = useState(false)
+  const [registrationResult, setRegistrationResult] = useState<{ message: string; product: any } | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const fetchRecentSearches = useCallback(async () => {
+    try {
+      const res = await fetch('/api/recent-searches')
+      if (res.ok) setRecentSearches(await res.json())
+    } catch {}
+  }, [])
+
+  const fetchNewProducts = useCallback(async () => {
+    try {
+      const res = await fetch('/api/new-products')
+      if (res.ok) setNewProducts(await res.json())
+    } catch {}
+  }, [])
+
+  useEffect(() => {
+    fetchRecentSearches()
+    fetchNewProducts()
+  }, [fetchRecentSearches, fetchNewProducts])
 
   async function handleScanResult(code: string) {
     setScanning(false)
@@ -36,6 +80,9 @@ export default function SearchClient({ tier }: SearchClientProps) {
     setError(null)
     setResult(null)
     setLimitExceeded(false)
+    setShowRegistration(false)
+    setRegistrationResult(null)
+    setRegistrationImage(null)
 
     try {
       const res = await fetch(`/api/barcode/${code}`)
@@ -53,12 +100,48 @@ export default function SearchClient({ tier }: SearchClientProps) {
       }
 
       setResult(data)
+      // 검색 후 최근검색/신규제품 갱신
+      fetchRecentSearches()
+      if (!data.product) fetchNewProducts()
     } catch {
       setError('네트워크 오류가 발생했습니다.')
     } finally {
       setLoading(false)
     }
   }
+
+  async function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const compressed = await compressImage(file)
+    setRegistrationImage(compressed)
+  }
+
+  async function handleRegister() {
+    if (!barcode) return
+    setRegistering(true)
+    try {
+      const res = await fetch('/api/product-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ barcode, imageData: registrationImage }),
+      })
+      const data = await res.json()
+      setRegistrationResult(data)
+      if (data.product) {
+        // 제품 등록됐으면 바로 검색 결과 갱신
+        await search(barcode)
+        fetchNewProducts()
+      }
+    } catch {
+      setRegistrationResult({ message: '오류가 발생했습니다.', product: null })
+    } finally {
+      setRegistering(false)
+    }
+  }
+
+  const hasResult = result !== null
+  const showNewProducts = !loading && !hasResult && newProducts.length > 0
 
   return (
     <>
@@ -69,14 +152,62 @@ export default function SearchClient({ tier }: SearchClientProps) {
       )}
 
       <div className="max-w-2xl mx-auto px-4 py-4 space-y-4">
-        {/* 검색 폼 */}
+
+        {/* ── 최근 검색 롤링 티커 ── */}
+        {recentSearches.length > 0 && (
+          <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+            <div className="flex items-center">
+              <div className="bg-blue-600 text-white text-xs font-bold px-3 py-3 shrink-0 flex items-center gap-1">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                실시간
+              </div>
+              <div className="overflow-hidden flex-1">
+                <div
+                  className="flex animate-ticker"
+                  style={{ animationDuration: `${Math.max(20, recentSearches.length * 4)}s` }}
+                >
+                  {[...recentSearches, ...recentSearches].map((log, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => { setBarcode(log.barcode); search(log.barcode) }}
+                      className="flex items-center gap-2 px-4 py-2.5 hover:bg-blue-50 transition-colors shrink-0 border-r border-gray-100"
+                    >
+                      {log.product_image ? (
+                        <img
+                          src={log.product_image}
+                          alt=""
+                          className="w-8 h-8 rounded object-contain bg-gray-50"
+                          onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                        />
+                      ) : (
+                        <div className="w-8 h-8 rounded bg-gray-100 flex items-center justify-center text-gray-400 text-xs">
+                          📦
+                        </div>
+                      )}
+                      <div className="text-left">
+                        <p className="text-xs font-medium text-gray-800 max-w-[100px] truncate">
+                          {log.product_name}
+                        </p>
+                        <p className="text-[10px] text-blue-500">
+                          {Number(log.search_count)}명 검색
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── 검색 폼 ── */}
         <form onSubmit={handleSearch} className="bg-white rounded-2xl shadow-sm p-5">
           <label className="block text-sm font-medium text-gray-700 mb-2">바코드 번호 입력</label>
           <div className="flex gap-2">
             <button
               type="button"
               onClick={() => setScanning(true)}
-              className="bg-gray-900 text-white px-4 py-3 rounded-xl hover:bg-gray-700 transition-colors flex items-center gap-1.5 flex-shrink-0"
+              className="bg-gray-900 text-white px-4 py-3 rounded-xl hover:bg-gray-700 transition-colors flex items-center gap-1.5 shrink-0"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
@@ -96,7 +227,7 @@ export default function SearchClient({ tier }: SearchClientProps) {
             <button
               type="submit"
               disabled={loading || barcode.length < 8}
-              className="bg-blue-600 text-white px-5 py-3 rounded-xl font-medium disabled:opacity-50 hover:bg-blue-700 transition-colors flex-shrink-0"
+              className="bg-blue-600 text-white px-5 py-3 rounded-xl font-medium disabled:opacity-50 hover:bg-blue-700 transition-colors shrink-0"
             >
               {loading ? '...' : '검색'}
             </button>
@@ -104,31 +235,62 @@ export default function SearchClient({ tier }: SearchClientProps) {
           <p className="mt-2 text-xs text-gray-400">카메라 버튼으로 바코드 스캔하거나 번호를 직접 입력하세요</p>
         </form>
 
-        {/* 에러 / 한도 초과 */}
-        {error && (
+        {/* ── 로딩 상태 ── */}
+        {loading && (
+          <div className="bg-white rounded-2xl shadow-sm p-8 animate-fade-in-up">
+            <div className="flex flex-col items-center gap-4">
+              {/* 스피너 링 */}
+              <div className="relative w-16 h-16">
+                <div className="absolute inset-0 rounded-full border-4 border-blue-100" />
+                <div className="absolute inset-0 rounded-full border-4 border-blue-600 border-t-transparent animate-spin" />
+                <div className="absolute inset-2 flex items-center justify-center text-xl">🔍</div>
+              </div>
+              <div className="text-center">
+                <p className="font-semibold text-gray-800">가격 비교 중...</p>
+                <p className="text-sm text-gray-500 mt-1">바코드 {barcode}</p>
+              </div>
+              {/* 플랫폼 순차 애니메이션 */}
+              <div className="flex items-center gap-3">
+                {['네이버쇼핑', '쿠팡', '여러 쇼핑몰'].map((name, i) => (
+                  <div
+                    key={name}
+                    className="text-xs text-gray-500 flex items-center gap-1"
+                    style={{ opacity: 0, animation: `fadeInUp 0.4s ease-out ${i * 0.3}s forwards` }}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" style={{ animationDelay: `${i * 0.3}s` }} />
+                    {name}
+                  </div>
+                ))}
+              </div>
+              <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                <div className="h-full bg-blue-500 rounded-full animate-pulse" style={{ width: '70%' }} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── 에러 / 한도 초과 ── */}
+        {error && !loading && (
           <div className={`rounded-xl p-4 text-sm ${limitExceeded ? 'bg-orange-50 border border-orange-200 text-orange-700' : 'bg-red-50 border border-red-200 text-red-700'}`}>
             {error}
             {limitExceeded && tier === 'guest' && (
-              <p className="mt-2 font-medium">
-                👆 위 카카오 로그인 버튼을 누르면 하루 10회 무료!
-              </p>
+              <p className="mt-2 font-medium">👆 위 카카오 로그인 버튼을 누르면 하루 200회 무료!</p>
             )}
             {limitExceeded && tier === 'free' && (
-              <p className="mt-2 font-medium">
-                💛 기부하시면 하루 100회 검색 가능합니다
-              </p>
+              <p className="mt-2 font-medium">💛 기부하시면 하루 1,000회 검색 가능합니다</p>
             )}
           </div>
         )}
 
-        {/* 결과 */}
-        {result && (
-          <div className="space-y-4">
+        {/* ── 검색 결과 ── */}
+        {result && !loading && (
+          <div className="space-y-4 animate-fade-in-up">
+
             {/* 제품 정보 */}
             <div className="bg-white rounded-2xl shadow-sm p-5">
               <div className="flex gap-4">
                 {result.product?.image_url && (
-                  <div className="relative w-20 h-20 flex-shrink-0">
+                  <div className="relative w-20 h-20 shrink-0">
                     <Image src={result.product.image_url} alt={result.product.name} fill className="object-contain rounded-lg" unoptimized />
                   </div>
                 )}
@@ -142,65 +304,98 @@ export default function SearchClient({ tier }: SearchClientProps) {
                       )}
                     </>
                   ) : (
-                    <p className="text-gray-500 py-4">제품 정보를 찾을 수 없습니다</p>
+                    <div>
+                      <p className="text-gray-500 py-2 font-medium">제품 정보를 찾을 수 없습니다</p>
+                      <p className="text-xs text-gray-400">새로 출시된 제품이거나 해외 제품일 수 있습니다</p>
+                    </div>
                   )}
                   <p className="text-xs text-gray-400 mt-2">바코드: {barcode}</p>
                 </div>
               </div>
+
+              {/* 제품 정보 없을 때 등록 신청 */}
+              {!result.product && !registrationResult && (
+                <div className="mt-4 pt-4 border-t border-gray-100">
+                  {!showRegistration ? (
+                    <button
+                      onClick={() => setShowRegistration(true)}
+                      className="w-full py-3 rounded-xl border-2 border-dashed border-blue-300 text-blue-600 font-medium text-sm hover:bg-blue-50 transition-colors flex items-center justify-center gap-2"
+                    >
+                      <span className="text-lg">📸</span>
+                      제품 등록 신청하기
+                    </button>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="text-sm font-medium text-gray-700">제품 사진을 찍어 등록 신청하세요</p>
+
+                      {/* 이미지 업로드 */}
+                      <div
+                        onClick={() => fileInputRef.current?.click()}
+                        className="cursor-pointer"
+                      >
+                        {registrationImage ? (
+                          <div className="relative w-full h-40 rounded-xl overflow-hidden bg-gray-50 border border-gray-200">
+                            <img src={registrationImage} alt="제품 사진" className="w-full h-full object-contain" />
+                            <div className="absolute bottom-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded-full">
+                              다시 찍기
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="w-full h-32 rounded-xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center gap-2 hover:bg-gray-50 transition-colors">
+                            <span className="text-3xl">📷</span>
+                            <p className="text-sm text-gray-500">제품 앞면 사진 촬영</p>
+                            <p className="text-xs text-gray-400">탭하여 카메라 열기</p>
+                          </div>
+                        )}
+                      </div>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        onChange={handleImageSelect}
+                      />
+
+                      <button
+                        onClick={handleRegister}
+                        disabled={registering}
+                        className="w-full py-3 bg-blue-600 text-white rounded-xl font-medium disabled:opacity-50 hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+                      >
+                        {registering ? (
+                          <>
+                            <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                            </svg>
+                            자동 검색 중...
+                          </>
+                        ) : '등록 신청하기'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 등록 결과 */}
+              {registrationResult && !registrationResult.product && (
+                <div className="mt-4 pt-4 border-t border-gray-100 bg-green-50 rounded-xl p-3 text-sm text-green-700 flex items-center gap-2">
+                  <span>✅</span>
+                  {registrationResult.message}
+                </div>
+              )}
             </div>
 
             {/* 가격 비교 */}
             {result.prices.length > 0 ? (
-              <>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-green-50 border border-green-200 rounded-2xl p-4">
-                    <p className="text-xs text-green-600 font-medium mb-1">온라인 최저가</p>
-                    <p className="text-2xl font-bold text-green-700">{result.lowestPrice!.price.toLocaleString()}원</p>
-                    <p className="text-xs text-green-600 mt-1 truncate">{getPlatformName(result.lowestPrice!.platform)}</p>
-                  </div>
-                  <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4">
-                    <p className="text-xs text-orange-600 font-medium mb-1">온라인 최고가</p>
-                    <p className="text-2xl font-bold text-orange-700">{result.highestPrice!.price.toLocaleString()}원</p>
-                    <p className="text-xs text-orange-600 mt-1 truncate">{getPlatformName(result.highestPrice!.platform)}</p>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-                  <div className="px-5 py-4 border-b border-gray-100">
-                    <h3 className="font-semibold text-gray-900">온라인 판매처 ({result.prices.length}개)</h3>
-                  </div>
-                  <div className="divide-y divide-gray-50">
-                    {[...result.prices].sort((a, b) => a.price - b.price).slice(0, 10).map((price, idx) => (
-                      <a key={idx} href={price.url} target="_blank" rel="noopener noreferrer"
-                        className="flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors">
-                        <div className="flex items-center gap-3">
-                          <PlatformBadge platform={price.platform} />
-                          <span className="text-sm text-gray-600 truncate max-w-[150px]">{price.seller_name || '판매자 정보 없음'}</span>
-                        </div>
-                        <div className="text-right flex-shrink-0">
-                          <p className="font-bold text-gray-900">{price.price.toLocaleString()}원</p>
-                          {idx === 0 && <span className="text-xs text-green-600 font-medium">최저가</span>}
-                        </div>
-                      </a>
-                    ))}
-                  </div>
-                </div>
-
-                {/* 쿠팡 파트너스 고지 */}
-                {result.prices.some(p => p.platform === 'coupang') && (
-                  <div className="flex items-start gap-2 bg-yellow-50 border border-yellow-200 rounded-xl px-4 py-3">
-                    <span className="text-yellow-500 text-sm mt-0.5">⚠</span>
-                    <p className="text-xs text-yellow-700 leading-relaxed">
-                      이 페이지의 쿠팡 링크를 통해 구매하시면 쿠팡 파트너스 활동의 일환으로 일정액의 수수료를 제공받을 수 있습니다.
-                    </p>
-                  </div>
-                )}
-              </>
+              <PriceComparison prices={result.prices} />
             ) : (
-              <div className="bg-white rounded-2xl shadow-sm p-8 text-center text-gray-400">
-                <p className="text-4xl mb-3">🔍</p>
-                <p>온라인 판매 정보를 찾을 수 없습니다</p>
-              </div>
+              result.product && (
+                <div className="bg-white rounded-2xl shadow-sm p-8 text-center text-gray-400">
+                  <p className="text-4xl mb-3">🔍</p>
+                  <p>온라인 판매 정보를 찾을 수 없습니다</p>
+                </div>
+              )
             )}
 
             <p className="text-xs text-center text-gray-400">
@@ -208,6 +403,43 @@ export default function SearchClient({ tier }: SearchClientProps) {
             </p>
           </div>
         )}
+
+        {/* ── 신규 등록 제품 ── */}
+        {showNewProducts && (
+          <div className="animate-fade-in-up">
+            <div className="flex items-center justify-between mb-3 px-1">
+              <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                <span className="text-base">🆕</span> 신규 등록 제품
+              </h3>
+              <span className="text-xs text-gray-400">{newProducts.length}개</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {newProducts.slice(0, 9).map(product => (
+                <button
+                  key={product.barcode}
+                  onClick={() => { setBarcode(product.barcode); search(product.barcode) }}
+                  className="bg-white rounded-xl shadow-sm p-3 text-left hover:shadow-md transition-shadow active:scale-95 transition-transform"
+                >
+                  <div className="w-full aspect-square rounded-lg bg-gray-50 mb-2 overflow-hidden flex items-center justify-center">
+                    {product.image_url ? (
+                      <img
+                        src={product.image_url}
+                        alt={product.name}
+                        className="w-full h-full object-contain"
+                        onError={e => { (e.target as HTMLImageElement).src = '' }}
+                      />
+                    ) : (
+                      <span className="text-2xl">📦</span>
+                    )}
+                  </div>
+                  <p className="text-xs font-medium text-gray-800 line-clamp-2 leading-tight">{product.name}</p>
+                  {product.brand && <p className="text-[10px] text-gray-400 mt-0.5 truncate">{product.brand}</p>}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
       </div>
     </>
   )
@@ -220,8 +452,206 @@ function getPlatformName(platform: string) {
 function PlatformBadge({ platform }: { platform: string }) {
   const info = PLATFORMS.find(p => p.id === platform)
   return (
-    <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: info?.color || '#666' }}>
+    <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white shrink-0" style={{ backgroundColor: info?.color || '#666' }}>
       {info?.name || platform}
     </span>
   )
+}
+
+function ShippingBadge({ fee, isRocket }: { fee?: number | null; isRocket?: boolean }) {
+  if (isRocket) {
+    return (
+      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#E8322B] text-white">
+        로켓 무료
+      </span>
+    )
+  }
+  if (fee === null || fee === undefined) {
+    return <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">배송비 확인</span>
+  }
+  if (fee === 0) {
+    return <span className="text-[10px] font-medium text-green-600 bg-green-50 px-1.5 py-0.5 rounded">무료배송</span>
+  }
+  return <span className="text-[10px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">+{fee.toLocaleString()}원</span>
+}
+
+import type { PriceSnapshot } from '@/types'
+
+function PriceSection({
+  title,
+  color,
+  bgColor,
+  prices,
+  showCoupangNotice,
+}: {
+  title: string
+  color: string
+  bgColor: string
+  prices: PriceSnapshot[]
+  showCoupangNotice?: boolean
+}) {
+  if (prices.length === 0) return null
+
+  // 총액(상품가 + 알려진 배송비) 기준 정렬
+  const sorted = [...prices].sort((a, b) => {
+    const aTotal = a.price + (a.shipping_fee ?? 0)
+    const bTotal = b.price + (b.shipping_fee ?? 0)
+    return aTotal - bTotal
+  })
+
+  const cheapest = sorted[0]
+  const cheapestTotal = cheapest.price + (cheapest.shipping_fee ?? 0)
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+      {/* 섹션 헤더 */}
+      <div className={`px-5 py-3 flex items-center justify-between ${bgColor}`}>
+        <div className="flex items-center gap-2">
+          <span className={`text-sm font-bold ${color}`}>{title}</span>
+          <span className="text-xs text-gray-500">{prices.length}개</span>
+        </div>
+        <div className="text-right">
+          <span className="text-xs text-gray-500">최저 </span>
+          <span className={`text-sm font-bold ${color}`}>{cheapest.price.toLocaleString()}원</span>
+          {cheapest.shipping_fee !== null && cheapest.shipping_fee !== undefined && (
+            <span className="text-xs text-gray-400 ml-1">
+              {cheapest.shipping_fee === 0 ? '(무료배송)' : `(+배송 ${cheapest.shipping_fee.toLocaleString()}원)`}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* 상품 목록 */}
+      <div className="divide-y divide-gray-50">
+        {sorted.slice(0, 8).map((price, idx) => (
+          <a
+            key={idx}
+            href={price.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 px-5 py-3.5 hover:bg-gray-50 transition-colors"
+          >
+            {/* 순위 */}
+            <span className={`text-xs font-bold w-5 shrink-0 ${idx === 0 ? color : 'text-gray-300'}`}>
+              {idx + 1}
+            </span>
+
+            {/* 판매자명 */}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-gray-700 truncate">{price.seller_name || '판매자 정보 없음'}</p>
+              <div className="flex items-center gap-1 mt-0.5">
+                <ShippingBadge fee={price.shipping_fee} isRocket={price.is_rocket} />
+                {price.shipping_fee !== null && price.shipping_fee !== undefined && price.shipping_fee > 0 && (
+                  <span className="text-[10px] text-gray-400">
+                    총 {(price.price + price.shipping_fee).toLocaleString()}원
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* 가격 */}
+            <div className="text-right shrink-0">
+              <p className={`font-bold ${idx === 0 ? color : 'text-gray-900'}`}>
+                {price.price.toLocaleString()}원
+              </p>
+              {idx === 0 && <span className="text-[10px] text-gray-400">상품가</span>}
+            </div>
+          </a>
+        ))}
+      </div>
+
+      {showCoupangNotice && (
+        <div className="flex items-start gap-2 bg-yellow-50 border-t border-yellow-100 px-5 py-3">
+          <span className="text-yellow-500 text-xs mt-0.5 shrink-0">⚠</span>
+          <p className="text-[11px] text-yellow-700 leading-relaxed">
+            쿠팡 링크를 통해 구매하시면 쿠팡 파트너스 활동의 일환으로 일정액의 수수료를 제공받을 수 있습니다.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PriceComparison({ prices }: { prices: PriceSnapshot[] }) {
+  const naverPrices = prices.filter(p => p.platform === 'naver')
+  const coupangPrices = prices.filter(p => p.platform === 'coupang')
+  const otherPrices = prices.filter(p => p.platform !== 'naver' && p.platform !== 'coupang')
+
+  // 전체 기준 최저/최고 (상품가 기준)
+  const allSorted = [...prices].sort((a, b) => a.price - b.price)
+  const lowest = allSorted[0]
+  const highest = allSorted[allSorted.length - 1]
+
+  return (
+    <div className="space-y-3">
+      {/* 요약 카드 */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-green-50 border border-green-200 rounded-2xl p-4">
+          <p className="text-xs text-green-600 font-medium mb-1">상품가 최저</p>
+          <p className="text-2xl font-bold text-green-700">{lowest.price.toLocaleString()}원</p>
+          <p className="text-xs text-green-600 mt-1">{getPlatformName(lowest.platform)}</p>
+          <ShippingNotice fee={lowest.shipping_fee} isRocket={lowest.is_rocket} />
+        </div>
+        <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4">
+          <p className="text-xs text-orange-600 font-medium mb-1">상품가 최고</p>
+          <p className="text-2xl font-bold text-orange-700">{highest.price.toLocaleString()}원</p>
+          <p className="text-xs text-orange-600 mt-1">{getPlatformName(highest.platform)}</p>
+          <ShippingNotice fee={highest.shipping_fee} isRocket={highest.is_rocket} />
+        </div>
+      </div>
+
+      {/* 네이버쇼핑 */}
+      <PriceSection
+        title="네이버쇼핑"
+        color="text-[#03C75A]"
+        bgColor="bg-[#f0fdf4]"
+        prices={naverPrices}
+      />
+
+      {/* 쿠팡 */}
+      <PriceSection
+        title="쿠팡"
+        color="text-[#E8322B]"
+        bgColor="bg-[#fff5f5]"
+        prices={coupangPrices}
+        showCoupangNotice={coupangPrices.length > 0}
+      />
+
+      {/* 기타 플랫폼 */}
+      {otherPrices.length > 0 && (
+        <PriceSection
+          title="기타"
+          color="text-gray-600"
+          bgColor="bg-gray-50"
+          prices={otherPrices}
+        />
+      )}
+    </div>
+  )
+}
+
+function ShippingNotice({ fee, isRocket }: { fee?: number | null; isRocket?: boolean }) {
+  if (isRocket) return <p className="text-[10px] text-red-500 font-bold mt-1">🚀 로켓 무료배송</p>
+  if (fee === 0) return <p className="text-[10px] text-green-600 font-medium mt-1">무료배송</p>
+  if (fee && fee > 0) return <p className="text-[10px] text-gray-500 mt-1">+배송비 {fee.toLocaleString()}원</p>
+  return <p className="text-[10px] text-gray-400 mt-1">배송비 별도 확인</p>
+}
+
+async function compressImage(file: File, maxWidth = 400, quality = 0.65): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      const scale = Math.min(1, maxWidth / img.width)
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.round(img.width * scale)
+      canvas.height = Math.round(img.height * scale)
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      URL.revokeObjectURL(url)
+      resolve(canvas.toDataURL('image/jpeg', quality))
+    }
+    img.onerror = reject
+    img.src = url
+  })
 }

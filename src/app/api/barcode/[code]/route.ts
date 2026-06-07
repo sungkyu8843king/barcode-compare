@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getProduct, upsertProduct, getRecentPrices, insertPrices } from '@/lib/db'
+import { getProduct, upsertProduct, getRecentPrices, insertPrices, insertSearchLog } from '@/lib/db'
 import { getCachedPrices, setCachedPrices, getCachedProduct, setCachedProduct } from '@/lib/redis'
 import { searchByBarcode } from '@/lib/naver-shopping'
 import { lookupOpenFoodFacts, lookupUPCItemDB } from '@/lib/open-food-facts'
@@ -90,20 +90,27 @@ export async function GET(
         prices = dbPrices as PriceSnapshot[]
         await setCachedPrices(barcode, dbPrices)
       } else {
-        const queryName = product?.name || barcode
+        const isKoreanBarcode = barcode.startsWith('880')
+        const nameIsEnglish = product?.name ? !/[가-힣]/.test(product.name) : false
+        // 영어 이름이거나 이름 없으면 바코드로 검색, 한국어 이름 있으면 이름으로 검색
+        const queryName = (product?.name && !nameIsEnglish) ? product.name : barcode
 
         // 네이버 + 쿠팡 병렬 조회
         const [naverResult, coupangResult] = await Promise.all([
-          searchByBarcode(barcode, queryName),
+          searchByBarcode(barcode, queryName, isKoreanBarcode && nameIsEnglish ? product?.name : undefined),
           searchCoupang(queryName !== barcode ? queryName : (product?.name || barcode), barcode),
         ])
 
         naverResult.prices = [...naverResult.prices, ...coupangResult.prices]
 
+        // 네이버 결과에서 한국어 이름 추출 → 영어 이름 덮어쓰기
+        const naverKoreanName = naverResult.inferredName && /[가-힣]/.test(naverResult.inferredName)
+          ? naverResult.inferredName : null
+
         if (naverResult.prices.length > 0) {
-          // 제품이 DB에 없으면 네이버 결과에서 추출한 정보로 등록
           if (!product) {
-            const name = naverResult.inferredName || barcode
+            // 신규 등록: 한국어 이름 우선
+            const name = naverKoreanName || naverResult.inferredName || barcode
             const inserted = await upsertProduct({
               barcode,
               name,
@@ -112,10 +119,15 @@ export async function GET(
             })
             product = inserted as Product
             if (product) await setCachedProduct(barcode, product)
+          } else if (naverKoreanName && nameIsEnglish) {
+            // 기존 영어 이름 → 한국어로 교체 (비동기)
+            upsertProduct({ barcode, name: naverKoreanName, brand: product.brand, category: product.category, image_url: product.image_url })
+              .then(updated => { if (updated) setCachedProduct(barcode, updated) })
+              .catch(console.error)
+            product = { ...product, name: naverKoreanName }
           }
-          // 비동기 저장 (응답 블로킹 없음)
-          insertPrices(naverResult.prices).catch(console.error)
 
+          insertPrices(naverResult.prices).catch(console.error)
           prices = naverResult.prices
           await setCachedPrices(barcode, naverResult.prices)
         }
@@ -132,6 +144,9 @@ export async function GET(
       cached: productCached && pricesCached,
       fetchedAt: new Date().toISOString(),
     }
+
+    // 검색 기록 저장 (비차단)
+    insertSearchLog(barcode, product?.name ?? null, product?.image_url ?? null).catch(() => {})
 
     return NextResponse.json(result)
   } catch (error) {
