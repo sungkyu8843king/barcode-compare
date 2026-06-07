@@ -788,13 +788,36 @@ function PriceSection({
   )
 }
 
+type ShippingFilter = 'all' | 'free' | 'paid'
+
+function isFreeShipping(p: PriceSnapshot) {
+  return p.is_rocket || p.shipping_fee === 0
+}
+function isPaidShipping(p: PriceSnapshot) {
+  return !p.is_rocket && p.shipping_fee !== null && p.shipping_fee !== undefined && p.shipping_fee > 0
+}
+
+function applyShippingFilter(prices: PriceSnapshot[], filter: ShippingFilter) {
+  if (filter === 'free') return prices.filter(isFreeShipping)
+  if (filter === 'paid') return prices.filter(isPaidShipping)
+  return prices
+}
+
 function PriceComparison({ prices }: { prices: PriceSnapshot[] }) {
-  const naverPrices = prices.filter(p => p.platform === 'naver')
-  const coupangPrices = prices.filter(p => p.platform === 'coupang')
-  const otherPrices = prices.filter(p => p.platform !== 'naver' && p.platform !== 'coupang')
+  const [shippingFilter, setShippingFilter] = useState<ShippingFilter>('all')
+
+  const filteredPrices = applyShippingFilter(prices, shippingFilter)
+  const naverPrices = filteredPrices.filter(p => p.platform === 'naver')
+  const coupangPrices = filteredPrices.filter(p => p.platform === 'coupang')
+  const otherPrices = filteredPrices.filter(p => p.platform !== 'naver' && p.platform !== 'coupang')
+
+  // 무료/유료 개수 (버튼 카운트용, 필터 전 전체 기준)
+  const freeCount = prices.filter(isFreeShipping).length
+  const paidCount = prices.filter(isPaidShipping).length
 
   // 총액(상품가+배송비) 기준 최저/최고
-  const allSorted = [...prices].sort((a, b) => {
+  const basePrices = filteredPrices.length > 0 ? filteredPrices : prices
+  const allSorted = [...basePrices].sort((a, b) => {
     const aTotal = a.price + (a.shipping_fee ?? 0)
     const bTotal = b.price + (b.shipping_fee ?? 0)
     return aTotal - bTotal
@@ -808,8 +831,39 @@ function PriceComparison({ prices }: { prices: PriceSnapshot[] }) {
 
   return (
     <div className="space-y-3">
+      {/* 배송비 필터 */}
+      <div className="flex gap-2">
+        {([
+          { value: 'all',  label: '전체',     count: prices.length },
+          { value: 'free', label: '무료배송만', count: freeCount },
+          { value: 'paid', label: '유료배송만', count: paidCount },
+        ] as { value: ShippingFilter; label: string; count: number }[]).map(opt => (
+          <button
+            key={opt.value}
+            onClick={() => setShippingFilter(opt.value)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+              shippingFilter === opt.value
+                ? 'bg-blue-600 text-white'
+                : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            {opt.value === 'free' && '🚚'}
+            {opt.label}
+            <span className={`text-[10px] ${shippingFilter === opt.value ? 'text-blue-200' : 'text-gray-400'}`}>
+              {opt.count}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {filteredPrices.length === 0 && (
+        <div className="bg-white rounded-2xl shadow-sm p-6 text-center text-gray-400 text-sm">
+          해당 조건의 상품이 없습니다
+        </div>
+      )}
+
       {/* 요약 카드 */}
-      <div className="grid grid-cols-2 gap-3">
+      {filteredPrices.length > 0 && <div className="grid grid-cols-2 gap-3">
         <div className="bg-green-50 border border-green-200 rounded-2xl p-4">
           <p className="text-xs text-green-600 font-medium mb-1">최저가</p>
           <p className="text-2xl font-bold text-green-700">
@@ -846,7 +900,7 @@ function PriceComparison({ prices }: { prices: PriceSnapshot[] }) {
           )}
           <p className="text-xs text-orange-600 mt-1">{getPlatformName(highest.platform)}</p>
         </div>
-      </div>
+      </div>}
 
       {/* 네이버쇼핑 */}
       <PriceSection
