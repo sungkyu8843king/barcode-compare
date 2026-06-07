@@ -185,6 +185,16 @@ export default function SearchClient({ tier }: SearchClientProps) {
                     ))}
                   </div>
                 </div>
+
+                {/* 쿠팡 파트너스 고지 */}
+                {result.prices.some(p => p.platform === 'coupang') && (
+                  <div className="flex items-start gap-2 bg-yellow-50 border border-yellow-200 rounded-xl px-4 py-3">
+                    <span className="text-yellow-500 text-sm mt-0.5">⚠</span>
+                    <p className="text-xs text-yellow-700 leading-relaxed">
+                      이 페이지의 쿠팡 링크를 통해 구매하시면 쿠팡 파트너스 활동의 일환으로 일정액의 수수료를 제공받을 수 있습니다.
+                    </p>
+                  </div>
+                )}
               </>
             ) : (
               <div className="bg-white rounded-2xl shadow-sm p-8 text-center text-gray-400">
