@@ -18,28 +18,39 @@ export interface CoupangSearchResult {
   prices: PriceSnapshot[]
 }
 
-export async function searchCoupang(keyword: string, barcode: string, brand?: string): Promise<CoupangSearchResult> {
-  // 브랜드가 제품명에 없으면 앞에 붙여서 정확도 향상
-  if (brand && /[가-힣]/.test(keyword) && !keyword.includes(brand)) {
-    keyword = `${brand} ${keyword}`
-  }
-  if (!ACCESS_KEY || !SECRET_KEY) return { prices: [] }
-
+async function fetchCoupangItems(keyword: string, barcode: string): Promise<any[]> {
   const path = '/v2/providers/affiliate_open_api/apis/openapi/products/search'
   const params = new URLSearchParams({ keyword, limit: '10', subId: barcode })
   const query = params.toString()
-
   const { authorization } = generateHmac('GET', path, query)
-
   try {
     const res = await axios.get(`${BASE_URL}${path}?${query}`, {
       headers: { Authorization: authorization },
       timeout: 5000,
     })
+    return res.data?.data?.productData || []
+  } catch (e: any) {
+    console.error('[Coupang] 검색 실패:', e.response?.status, e.message)
+    return []
+  }
+}
 
-    const items = res.data?.data?.productData || []
-    const now = new Date().toISOString()
+export async function searchCoupang(keyword: string, barcode: string, brand?: string): Promise<CoupangSearchResult> {
+  if (!ACCESS_KEY || !SECRET_KEY) return { prices: [] }
 
+  // 브랜드 포함 검색 먼저, 결과 없으면 제품명만으로 재검색
+  const cleanedBrand = brand?.replace(/\(주\)|\(주식회사\)|㈜|주식회사\s*/gi, '').trim()
+  const keywordWithBrand = (cleanedBrand && /[가-힣]/.test(keyword) && !keyword.includes(cleanedBrand))
+    ? `${cleanedBrand} ${keyword}` : keyword
+
+  let items = await fetchCoupangItems(keywordWithBrand, barcode)
+  if (items.length === 0 && keywordWithBrand !== keyword) {
+    items = await fetchCoupangItems(keyword, barcode)
+  }
+
+  const now = new Date().toISOString()
+
+  try {
     const prices: PriceSnapshot[] = items
       .filter((item: any) => item.productPrice >= 100)
       .slice(0, 8)
@@ -78,7 +89,7 @@ export async function searchCoupang(keyword: string, barcode: string, brand?: st
 
     return { prices }
   } catch (e: any) {
-    console.error('[Coupang] 검색 실패:', e.response?.status, e.message)
+    console.error('[Coupang] 파싱 실패:', e.message)
     return { prices: [] }
   }
 }
