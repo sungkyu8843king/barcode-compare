@@ -66,6 +66,7 @@ export interface NaverSearchResult {
   inferredBrand: string | null
   inferredCategory: string | null
   inferredImage: string | null
+  inferredImageIsOfficial: boolean  // 카탈로그(제조사 공식) 이미지 여부
 }
 
 export async function searchByBarcode(barcode: string, productName?: string, englishNameHint?: string): Promise<NaverSearchResult> {
@@ -99,7 +100,12 @@ export async function searchByBarcode(barcode: string, productName?: string, eng
   const inferredName = first ? cleanNaverTitle(first.title) : null
   const inferredBrand = first?.brand || first?.maker || null
   const inferredCategory = first?.category3 || first?.category2 || first?.category1 || null
-  const inferredImage = first?.image || null
+
+  // 카탈로그 상품(productType=1)은 제조사 공식 이미지, 개인판매자(2)는 직찍 → 카탈로그 우선
+  const catalogItem = validItems.find(item => item.productType === '1' && item.image)
+  const imageSource = catalogItem || first
+  const inferredImage = imageSource?.image || null
+  const inferredImageIsOfficial = !!catalogItem
 
   const prices: PriceSnapshot[] = validItems.slice(0, 10).map((item, idx) => ({
     id: idx,
@@ -115,7 +121,7 @@ export async function searchByBarcode(barcode: string, productName?: string, eng
     product_title: cleanNaverTitle(item.title),
   }))
 
-  return { prices, inferredName, inferredBrand, inferredCategory, inferredImage }
+  return { prices, inferredName, inferredBrand, inferredCategory, inferredImage, inferredImageIsOfficial }
 }
 
 export function cleanNaverTitle(title: string): string {

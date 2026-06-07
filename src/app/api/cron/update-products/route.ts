@@ -15,12 +15,11 @@ export async function GET(req: NextRequest) {
 
   const results: Record<string, number> = {}
 
-  // ── 1. 이미지 없는 제품에 네이버 이미지 보강 (50개/회) ──
+  // ── 1. 이미지 없거나 카탈로그 이미지로 보강 (50개/회) ──
   try {
     const noImageProducts = await sql`
       SELECT barcode, name FROM products
-      WHERE image_url IS NULL
-        AND name ~ '[가-힣]'
+      WHERE name ~ '[가-힣]'
       ORDER BY RANDOM()
       LIMIT 50
     `
@@ -28,9 +27,15 @@ export async function GET(req: NextRequest) {
     let imageUpdated = 0
     for (const product of noImageProducts) {
       try {
-        const items = await searchNaverShopping(product.name as string, 3)
-        const image = items.find(i => i.image)?.image
-        if (image) {
+        // 바코드로 먼저 시도, 없으면 이름으로
+        let items = await searchNaverShopping(product.barcode as string, 5)
+        if (items.length === 0) items = await searchNaverShopping(product.name as string, 5)
+        // 카탈로그 상품(공식 이미지) 우선
+        const catalogItem = items.find(i => i.productType === '1' && i.image)
+        const image = catalogItem?.image || items.find(i => i.image)?.image
+        // 카탈로그 이미지가 있으면 항상 업데이트, 없으면 이미지 없는 경우만
+        const needsUpdate = catalogItem || !product.image_url
+        if (image && needsUpdate) {
           await sql`
             UPDATE products SET image_url = ${image}, updated_at = NOW()
             WHERE barcode = ${product.barcode}

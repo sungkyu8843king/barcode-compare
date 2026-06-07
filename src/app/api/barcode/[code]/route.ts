@@ -126,8 +126,10 @@ export async function GET(
               .then(updated => { if (updated) setCachedProduct(barcode, updated) })
               .catch(console.error)
             product = { ...product, name: naverKoreanName }
-          } else if (!product.image_url && naverResult.inferredImage) {
-            // 이미지 없는 기존 제품 → 네이버 이미지 추가 (비동기)
+          } else if (naverResult.inferredImage && (
+            !product.image_url ||                          // 이미지 없음
+            naverResult.inferredImageIsOfficial            // 카탈로그 공식 이미지 → 판매자 직찍 덮어쓰기
+          )) {
             upsertProduct({ barcode, name: product.name, brand: product.brand, category: product.category, image_url: naverResult.inferredImage })
               .then(updated => { if (updated) setCachedProduct(barcode, updated) })
               .catch(console.error)
