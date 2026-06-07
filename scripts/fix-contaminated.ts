@@ -73,7 +73,7 @@ ${list}`
 
       const text = (msg.content[0] as any).text?.trim() ?? ''
       if (text !== '없음' && text.length > 0) {
-        const wrongBarcodes = text.split(/[,\s]+/).filter(s => /^\d{8,14}$/.test(s))
+        const wrongBarcodes = text.split(/[,\s]+/).filter((s: string) => /^\d{8,14}$/.test(s))
         for (const bc of wrongBarcodes) {
           const prod = batch.find(p => p.barcode === bc)
           if (prod) {

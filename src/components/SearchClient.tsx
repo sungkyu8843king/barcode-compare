@@ -642,9 +642,34 @@ function ShippingBadge({ fee, isRocket, deliveryType }: { fee?: number | null; i
 }
 
 function extractQuantity(title: string): number {
-  const m = title.match(/(\d+)\s*개/)
-  const qty = m ? parseInt(m[1]) : 1
-  return qty >= 2 && qty <= 500 ? qty : 1
+  // "3개입", "3개", "3팩", "x3", "×3" 등 다양한 패턴
+  const patterns = [
+    /[×x\*]\s*(\d+)/i,       // x3, ×3
+    /(\d+)\s*개입/,            // 3개입
+    /(\d+)\s*팩/,              // 3팩
+    /(\d+)\s*박스/,            // 3박스
+    /,\s*(\d+)개$/,            // 제품명, 3개
+    /\s(\d+)개$/,              // 제품명 3개 (끝)
+    /(\d+)\s*개\b/,            // 3개
+  ]
+  for (const p of patterns) {
+    const m = title.match(p)
+    if (m) {
+      const qty = parseInt(m[1])
+      if (qty >= 2 && qty <= 100) return qty
+    }
+  }
+  return 1
+}
+
+// 같은 결과 목록에서 단품 최저 개당가격 계산
+function getSingleUnitPrice(prices: PriceSnapshot[]): number | null {
+  const singles = prices.filter(p => {
+    const title = p.product_title || p.seller_name || ''
+    return extractQuantity(title) === 1
+  })
+  if (singles.length === 0) return null
+  return Math.min(...singles.map(p => p.price + (p.shipping_fee ?? 0)))
 }
 
 import type { PriceSnapshot } from '@/types'
@@ -655,12 +680,14 @@ function PriceSection({
   bgColor,
   prices,
   showCoupangNotice,
+  allPrices,
 }: {
   title: string
   color: string
   bgColor: string
   prices: PriceSnapshot[]
   showCoupangNotice?: boolean
+  allPrices?: PriceSnapshot[]  // 단품 vs 묶음 비교용 전체 목록
 }) {
   if (prices.length === 0) return null
 
@@ -708,6 +735,14 @@ function PriceSection({
           const qty = extractQuantity(titleText)
           const perUnit = qty > 1 ? Math.round(totalPrice / qty) : null
 
+          // 단품 최저가 대비 묶음 절약액 계산
+          const singlePrice = allPrices ? getSingleUnitPrice(allPrices) : null
+          const saving = (perUnit && singlePrice && perUnit < singlePrice)
+            ? singlePrice - perUnit : null
+
+          // 묶음 구매 시 무료배송 여부
+          const bundleFreeShip = qty > 1 && (price.is_rocket || price.shipping_fee === 0)
+
           return (
             <a
               key={idx}
@@ -731,7 +766,17 @@ function PriceSection({
                   <ShippingBadge fee={price.shipping_fee} isRocket={price.is_rocket} deliveryType={price.delivery_type} />
                   {perUnit && (
                     <span className="text-[10px] font-medium text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">
-                      {qty}개입 · 개당 {perUnit.toLocaleString()}원
+                      {qty}개 묶음 · 개당 {perUnit.toLocaleString()}원
+                    </span>
+                  )}
+                  {saving && saving > 0 && (
+                    <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">
+                      단품보다 개당 {saving.toLocaleString()}원 저렴
+                    </span>
+                  )}
+                  {bundleFreeShip && !saving && (
+                    <span className="text-[10px] font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
+                      {qty}개 묶음 무료배송
                     </span>
                   )}
                 </div>
@@ -740,7 +785,6 @@ function PriceSection({
               {/* 가격 */}
               <div className="text-right shrink-0 min-w-[80px]">
                 {hasShipping ? (
-                  // 배송비 있음 → 총액 표시
                   <>
                     <p className={`font-bold ${idx === 0 ? color : 'text-gray-900'}`}>
                       {totalPrice.toLocaleString()}원
@@ -750,7 +794,6 @@ function PriceSection({
                     </p>
                   </>
                 ) : price.is_rocket ? (
-                  // 쿠팡 로켓계열 → 와우/일반 두 가지 표시
                   <>
                     <p className={`font-bold ${idx === 0 ? color : 'text-gray-900'}`}>
                       {price.price.toLocaleString()}원
@@ -761,7 +804,6 @@ function PriceSection({
                     <p className="text-[10px] text-gray-400">일반 ~{(price.price + 3000).toLocaleString()}원</p>
                   </>
                 ) : price.shipping_fee === 0 ? (
-                  // 무료배송
                   <>
                     <p className={`font-bold ${idx === 0 ? color : 'text-gray-900'}`}>
                       {price.price.toLocaleString()}원
@@ -769,13 +811,18 @@ function PriceSection({
                     <p className="text-[10px] text-green-600 font-medium">무료배송 포함</p>
                   </>
                 ) : (
-                  // 배송비 미제공 (네이버 등)
                   <>
                     <p className={`font-bold ${idx === 0 ? color : 'text-gray-900'}`}>
                       {price.price.toLocaleString()}원
                     </p>
                     <p className="text-[10px] text-gray-400">+ 배송비 별도</p>
                   </>
+                )}
+                {/* 묶음 개당가 vs 단품 비교 라인 */}
+                {perUnit && singlePrice && (
+                  <p className="text-[10px] text-gray-400">
+                    단품 {singlePrice.toLocaleString()} → 개당 {perUnit.toLocaleString()}
+                  </p>
                 )}
               </div>
             </a>
@@ -931,6 +978,7 @@ function PriceComparison({ prices }: { prices: PriceSnapshot[] }) {
         color="text-[#03C75A]"
         bgColor="bg-[#f0fdf4]"
         prices={naverPrices}
+        allPrices={prices}
       />
 
       {/* 쿠팡 */}
@@ -940,6 +988,7 @@ function PriceComparison({ prices }: { prices: PriceSnapshot[] }) {
         bgColor="bg-[#fff5f5]"
         prices={coupangPrices}
         showCoupangNotice={coupangPrices.length > 0}
+        allPrices={prices}
       />
 
       {/* 기타 플랫폼 */}
@@ -949,6 +998,7 @@ function PriceComparison({ prices }: { prices: PriceSnapshot[] }) {
           color="text-gray-600"
           bgColor="bg-gray-50"
           prices={otherPrices}
+          allPrices={prices}
         />
       )}
     </div>
