@@ -110,10 +110,12 @@ function filterByProductName(items: NaverShoppingItem[], productName: string): N
   const terms = extractKeyTerms(productName)
   if (terms.length === 0) return items
 
+  // 2단어 이하: 전부 일치, 3단어 이상: 60% 이상 일치
+  const required = terms.length <= 2 ? terms.length : Math.ceil(terms.length * 0.6)
   return items.filter(item => {
     const title = cleanNaverTitle(item.title).toLowerCase()
-    // 키워드 중 하나라도 제목에 포함되면 통과
-    return terms.some(term => title.includes(term.toLowerCase()))
+    const matched = terms.filter(term => title.includes(term.toLowerCase())).length
+    return matched >= required
   })
 }
 
