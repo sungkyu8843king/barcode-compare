@@ -80,6 +80,14 @@ function filterByProductName(items: NaverShoppingItem[], productName: string): N
   })
 }
 
+// 브랜드명에서 회사 법인 표기 제거 ("씨제이제일제당(주)" → "씨제이제일제당")
+function cleanBrand(brand: string): string {
+  return brand
+    .replace(/\(주\)|\(주식회사\)|㈜|주식회사\s*/gi, '')
+    .replace(/\s*(co\.,?\s*ltd\.?|inc\.?|corp\.?)\s*$/gi, '')
+    .trim()
+}
+
 // 불필요한 단어 제거한 짧은 쿼리 (재검색용)
 function shortenProductName(name: string): string {
   // 용량/중량 표기 제거, 앞 2단어만
@@ -108,7 +116,8 @@ export async function searchByBarcode(
 
   if (hasKoreanName) {
     // ── 1순위: 브랜드 + 제품명 조합 검색 (가장 정확) ──
-    const fullQuery = brand ? `${brand} ${productName}` : productName!
+    const cleanedBrand = brand ? cleanBrand(brand) : null
+    const fullQuery = cleanedBrand ? `${cleanedBrand} ${productName}` : productName!
     const fullItems = await searchNaverShopping(fullQuery, 20)
     const validated = filterByProductName(fullItems, productName!)
     if (validated.length >= 2) {
