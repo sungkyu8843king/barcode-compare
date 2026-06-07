@@ -341,7 +341,14 @@ export default function SearchClient({ tier }: SearchClientProps) {
                   {result.product ? (
                     <>
                       <h2 className="font-bold text-gray-900 text-lg leading-tight">{result.product.name}</h2>
-                      {result.product.brand && <p className="text-sm text-gray-500 mt-1">{result.product.brand}</p>}
+                      <div className="flex items-center gap-2 flex-wrap mt-1">
+                        {result.product.brand && <p className="text-sm text-gray-500">{result.product.brand}</p>}
+                        {(result.product as any).spec && (
+                          <span className="text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                            {(result.product as any).spec}
+                          </span>
+                        )}
+                      </div>
                       {result.product.category && (
                         <span className="inline-block mt-2 text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{result.product.category}</span>
                       )}

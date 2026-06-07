@@ -97,6 +97,19 @@ function shortenProductName(name: string): string {
   return words.slice(0, 2).join(' ')
 }
 
+// 제품 제목에서 용량/중량/수량 추출
+export function extractSpec(title: string): string | null {
+  // 예: "315g", "1kg", "500ml", "1.5L", "12개입", "6매", "10팩"
+  const m = title.match(/\d+(?:\.\d+)?\s*(?:ml|ML|l|L|g|G|kg|KG|mg|개입|개|매|팩|입|box|BOX)\b/g)
+  if (!m || m.length === 0) return null
+  // 숫자가 너무 크면 수량이 아닌 가격일 수 있음 - 10000 이하만
+  const valid = m.filter(s => {
+    const num = parseFloat(s)
+    return num > 0 && num <= 10000
+  })
+  return valid.slice(0, 2).join(' ') || null
+}
+
 export interface NaverSearchResult {
   prices: PriceSnapshot[]
   inferredName: string | null
@@ -104,6 +117,7 @@ export interface NaverSearchResult {
   inferredCategory: string | null
   inferredImage: string | null
   inferredImageIsOfficial: boolean
+  inferredSpec: string | null   // 용량/중량 추출값
 }
 
 export async function searchByBarcode(
@@ -191,7 +205,9 @@ export async function searchByBarcode(
     product_title: cleanNaverTitle(item.title),
   }))
 
-  return { prices, inferredName, inferredBrand, inferredCategory, inferredImage, inferredImageIsOfficial }
+  const inferredSpec = inferredName ? extractSpec(inferredName) : null
+
+  return { prices, inferredName, inferredBrand, inferredCategory, inferredImage, inferredImageIsOfficial, inferredSpec }
 }
 
 export function cleanNaverTitle(title: string): string {
