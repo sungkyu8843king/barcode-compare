@@ -6,11 +6,12 @@ import { PriceSnapshot, Platform } from '@/types'
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
-  const { barcode, feedbackType, userQuery, note } = body as {
+  const { barcode, feedbackType, userQuery, note, imageData } = body as {
     barcode?: string
     feedbackType?: string
     userQuery?: string
     note?: string
+    imageData?: string
   }
 
   if (!barcode || !/^\d{8,14}$/.test(barcode)) {
@@ -19,8 +20,8 @@ export async function POST(req: NextRequest) {
 
   // 피드백 저장
   await sql`
-    INSERT INTO product_feedback (barcode, feedback_type, user_query, note)
-    VALUES (${barcode}, ${feedbackType || 'wrong_product'}, ${userQuery || null}, ${note || null})
+    INSERT INTO product_feedback (barcode, feedback_type, user_query, note, image_data)
+    VALUES (${barcode}, ${feedbackType || 'wrong_product'}, ${userQuery || null}, ${note || null}, ${imageData || null})
   `.catch(() => {})
 
   // 캐시 무효화 (다음 검색 시 새로 조회)

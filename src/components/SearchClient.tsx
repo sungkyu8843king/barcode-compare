@@ -47,8 +47,10 @@ export default function SearchClient({ tier }: SearchClientProps) {
   const [showFeedback, setShowFeedback] = useState(false)
   const [feedbackType, setFeedbackType] = useState('wrong_product')
   const [feedbackQuery, setFeedbackQuery] = useState('')
+  const [feedbackImage, setFeedbackImage] = useState<string | null>(null)
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false)
   const [feedbackDone, setFeedbackDone] = useState<string | null>(null)
+  const feedbackFileRef = useRef<HTMLInputElement>(null)
 
   const fetchRecentSearches = useCallback(async () => {
     try {
@@ -92,6 +94,7 @@ export default function SearchClient({ tier }: SearchClientProps) {
     setShowFeedback(false)
     setFeedbackDone(null)
     setFeedbackQuery('')
+    setFeedbackImage(null)
 
     try {
       const res = await fetch(`/api/barcode/${code}`)
@@ -161,6 +164,7 @@ export default function SearchClient({ tier }: SearchClientProps) {
           feedbackType,
           userQuery: retrySearch ? feedbackQuery.trim() : undefined,
           note: null,
+          imageData: feedbackImage || undefined,
         }),
       })
       const data = await res.json()
@@ -472,6 +476,38 @@ export default function SearchClient({ tier }: SearchClientProps) {
                       {opt.label}
                     </button>
                   ))}
+                </div>
+
+                {/* 제품 사진 촬영 */}
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">제품 사진 (선택)</label>
+                  <div
+                    onClick={() => feedbackFileRef.current?.click()}
+                    className="cursor-pointer"
+                  >
+                    {feedbackImage ? (
+                      <div className="relative h-28 rounded-xl overflow-hidden bg-gray-50 border border-gray-200">
+                        <img src={feedbackImage} alt="신고 사진" className="w-full h-full object-contain" />
+                        <div className="absolute bottom-2 right-2 bg-black/50 text-white text-xs px-2 py-0.5 rounded-full">다시 찍기</div>
+                      </div>
+                    ) : (
+                      <div className="h-20 rounded-xl border-2 border-dashed border-gray-200 flex items-center justify-center gap-2 text-gray-400 hover:bg-gray-50 transition-colors">
+                        <span className="text-xl">📷</span>
+                        <span className="text-xs">올바른 제품 사진 첨부</span>
+                      </div>
+                    )}
+                  </div>
+                  <input
+                    ref={feedbackFileRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={async e => {
+                      const file = e.target.files?.[0]
+                      if (file) setFeedbackImage(await compressImage(file))
+                    }}
+                  />
                 </div>
 
                 {/* 올바른 제품명 입력 (재검색용) */}
