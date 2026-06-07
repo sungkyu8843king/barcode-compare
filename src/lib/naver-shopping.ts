@@ -39,8 +39,7 @@ const GS1_BRANDS: Record<string, string> = {
 
 function getBrandFromBarcode(barcode: string): string | null {
   if (!barcode.startsWith('880')) return null
-  const prefix7 = barcode.slice(0, 7)
-  return GS1_BRANDS[prefix7] || null
+  return GS1_BRANDS[barcode.slice(0, 7)] || null
 }
 
 export async function searchNaverShopping(query: string, display = 20): Promise<NaverShoppingItem[]> {
@@ -60,36 +59,97 @@ export async function searchNaverShopping(query: string, display = 20): Promise<
   }
 }
 
+// 제품명에서 핵심 키워드 추출 (한국어 2자 이상 단어)
+function extractKeyTerms(name: string): string[] {
+  // 괄호 안 제거, 특수문자 정리
+  const cleaned = name.replace(/\([^)]*\)/g, '').replace(/[^\w가-힣\s]/g, ' ').trim()
+  const words = cleaned.split(/\s+/).filter(w => w.length >= 2)
+  // 첫 3개 단어를 핵심어로 (가장 식별력 높은 앞부분)
+  return [...new Set(words.slice(0, 4))]
+}
+
+// Naver 결과가 기대 제품과 일치하는지 검증
+function filterByProductName(items: NaverShoppingItem[], productName: string): NaverShoppingItem[] {
+  const terms = extractKeyTerms(productName)
+  if (terms.length === 0) return items
+
+  return items.filter(item => {
+    const title = cleanNaverTitle(item.title).toLowerCase()
+    // 키워드 중 하나라도 제목에 포함되면 통과
+    return terms.some(term => title.includes(term.toLowerCase()))
+  })
+}
+
+// 불필요한 단어 제거한 짧은 쿼리 (재검색용)
+function shortenProductName(name: string): string {
+  // 용량/중량 표기 제거, 앞 2단어만
+  const words = name
+    .replace(/\d+\s*(ml|g|kg|l|개|입|팩|병|캔|박스|box|ea)\b/gi, '')
+    .split(/\s+/).filter(Boolean)
+  return words.slice(0, 2).join(' ')
+}
+
 export interface NaverSearchResult {
   prices: PriceSnapshot[]
   inferredName: string | null
   inferredBrand: string | null
   inferredCategory: string | null
   inferredImage: string | null
-  inferredImageIsOfficial: boolean  // 카탈로그(제조사 공식) 이미지 여부
+  inferredImageIsOfficial: boolean
 }
 
-export async function searchByBarcode(barcode: string, productName?: string, englishNameHint?: string): Promise<NaverSearchResult> {
+export async function searchByBarcode(
+  barcode: string,
+  productName?: string,
+  brand?: string,
+): Promise<NaverSearchResult> {
   let items: NaverShoppingItem[] = []
+  const hasKoreanName = productName && /[가-힣]/.test(productName)
 
-  // 1순위: 바코드로 검색 (가장 정확 - 정확한 제품 매칭)
-  items = await searchNaverShopping(barcode, 20)
+  if (hasKoreanName) {
+    // ── 1순위: 브랜드 + 제품명 조합 검색 (가장 정확) ──
+    const fullQuery = brand ? `${brand} ${productName}` : productName!
+    const fullItems = await searchNaverShopping(fullQuery, 20)
+    const validated = filterByProductName(fullItems, productName!)
+    if (validated.length >= 2) {
+      items = validated
+    } else if (fullItems.length > 0) {
+      items = fullItems // 검증 통과 못해도 결과 있으면 사용
+    }
 
-  // 2순위: 한국어 제품명으로 검색
-  if (items.length === 0 && productName && productName !== barcode) {
-    items = await searchNaverShopping(productName, 20)
+    // ── 2순위: 제품명만 검색 ──
+    if (items.length === 0) {
+      const nameItems = await searchNaverShopping(productName!, 20)
+      const validated2 = filterByProductName(nameItems, productName!)
+      items = validated2.length > 0 ? validated2 : nameItems
+    }
+
+    // ── 3순위: 줄인 제품명 검색 (제품명이 너무 길거나 특수한 경우) ──
+    if (items.length === 0) {
+      const short = shortenProductName(productName!)
+      if (short && short !== productName) {
+        items = await searchNaverShopping(short, 20)
+      }
+    }
   }
 
-  // 3순위: 영어 이름 힌트로 검색
-  if (items.length === 0 && englishNameHint) {
-    items = await searchNaverShopping(englishNameHint, 20)
+  // ── 4순위: 바코드 검색 (한국 바코드 880*는 간혹 네이버에 등록됨) ──
+  if (items.length === 0) {
+    const barcodeItems = await searchNaverShopping(barcode, 20)
+    // 한국어 제품명 알고 있으면 검증, 모르면 그대로 사용
+    if (hasKoreanName && barcodeItems.length > 0) {
+      const validated3 = filterByProductName(barcodeItems, productName!)
+      items = validated3.length > 0 ? validated3 : []
+    } else {
+      items = barcodeItems
+    }
   }
 
-  // 4순위: 한국 바코드(880*)면 브랜드명으로 fallback
-  if (items.length === 0 && barcode.startsWith('880')) {
-    const brand = getBrandFromBarcode(barcode)
-    if (brand) {
-      items = await searchNaverShopping(brand, 20)
+  // ── 5순위: GS1 브랜드 fallback ──
+  if (items.length === 0) {
+    const gs1Brand = brand || getBrandFromBarcode(barcode)
+    if (gs1Brand) {
+      items = await searchNaverShopping(gs1Brand, 20)
     }
   }
 
@@ -98,10 +158,9 @@ export async function searchByBarcode(barcode: string, productName?: string, eng
 
   const first = validItems[0]
   const inferredName = first ? cleanNaverTitle(first.title) : null
-  const inferredBrand = first?.brand || first?.maker || null
+  const inferredBrand = first?.brand || first?.maker || brand || null
   const inferredCategory = first?.category3 || first?.category2 || first?.category1 || null
 
-  // 카탈로그 상품(productType=1)은 제조사 공식 이미지, 개인판매자(2)는 직찍 → 카탈로그 우선
   const catalogItem = validItems.find(item => item.productType === '1' && item.image)
   const imageSource = catalogItem || first
   const inferredImage = imageSource?.image || null

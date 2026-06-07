@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getProduct, upsertProduct, getRecentPrices, insertPrices, insertSearchLog } from '@/lib/db'
 import { getCachedPrices, setCachedPrices, getCachedProduct, setCachedProduct } from '@/lib/redis'
 import { searchByBarcode } from '@/lib/naver-shopping'
-import { lookupOpenFoodFacts, lookupUPCItemDB } from '@/lib/open-food-facts'
+import { lookupOpenFoodFacts, lookupUPCItemDB, lookupFoodsafety } from '@/lib/open-food-facts'
 import { searchCoupang } from '@/lib/coupang'
 import { auth } from '@/lib/auth'
 import { checkGuestLimit, checkUserLimit, DAILY_LIMITS } from '@/lib/rate-limit'
@@ -58,9 +58,13 @@ export async function GET(
       product = await getProduct(barcode) as Product | null
 
       if (!product) {
-        // OFF → UPC Item DB 순서로 조회
-        const offProduct = await lookupOpenFoodFacts(barcode)
-        const extProduct = offProduct?.name ? offProduct : await lookupUPCItemDB(barcode)
+        // 한국 바코드(880*)는 식품안전나라 우선, 그 다음 OFF → UPC Item DB
+        const fsProduct = await lookupFoodsafety(barcode)
+        const offProduct = fsProduct?.name ? null : await lookupOpenFoodFacts(barcode)
+        const extProduct = fsProduct?.name ? fsProduct
+          : offProduct?.name ? offProduct
+          : await lookupUPCItemDB(barcode)
+
         if (extProduct?.name) {
           product = await upsertProduct({
             barcode,
@@ -92,12 +96,12 @@ export async function GET(
       } else {
         const nameIsEnglish = product?.name ? !/[가-힣]/.test(product.name) : false
 
-        // 네이버: 바코드 우선, fallback으로 한국어 이름
+        // 네이버: DB 제품명 우선(브랜드 포함), 없으면 바코드 fallback
         // 쿠팡: 한국어 이름이 있으면 이름으로, 없으면 바코드로
         const coupangQuery = (product?.name && !nameIsEnglish) ? product.name : (product?.name || barcode)
         const [naverResult, coupangResult] = await Promise.all([
-          searchByBarcode(barcode, product?.name || undefined),
-          searchCoupang(coupangQuery, barcode),
+          searchByBarcode(barcode, product?.name || undefined, product?.brand || undefined),
+          searchCoupang(coupangQuery, barcode, product?.brand || undefined),
         ])
 
         naverResult.prices = [...naverResult.prices, ...coupangResult.prices]

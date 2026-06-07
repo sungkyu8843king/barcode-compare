@@ -18,7 +18,11 @@ export interface CoupangSearchResult {
   prices: PriceSnapshot[]
 }
 
-export async function searchCoupang(keyword: string, barcode: string): Promise<CoupangSearchResult> {
+export async function searchCoupang(keyword: string, barcode: string, brand?: string): Promise<CoupangSearchResult> {
+  // 브랜드가 제품명에 없으면 앞에 붙여서 정확도 향상
+  if (brand && /[가-힣]/.test(keyword) && !keyword.includes(brand)) {
+    keyword = `${brand} ${keyword}`
+  }
   if (!ACCESS_KEY || !SECRET_KEY) return { prices: [] }
 
   const path = '/v2/providers/affiliate_open_api/apis/openapi/products/search'

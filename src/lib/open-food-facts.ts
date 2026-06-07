@@ -1,6 +1,32 @@
 import axios from 'axios'
 import { Product } from '@/types'
 
+// 식품안전나라 바코드 직접 조회 (한국 바코드 880* 전용)
+export async function lookupFoodsafety(barcode: string): Promise<Partial<Product> | null> {
+  const key = process.env.FOODSAFETY_API_KEY
+  if (!key || !barcode.startsWith('880')) return null
+
+  try {
+    const res = await axios.get(
+      `http://openapi.foodsafetykorea.go.kr/api/${key}/C005/json/1/5`,
+      { params: { BAR_CD: barcode }, timeout: 6000 }
+    )
+    const rows: any[] = res.data?.C005?.row ?? []
+    const item = rows.find((r: any) => r.BAR_CD?.trim() === barcode) || rows[0]
+    if (!item?.PRDLST_NM) return null
+
+    return {
+      barcode,
+      name: item.PRDLST_NM.trim(),
+      brand: item.BSSH_NM?.trim() || null,
+      category: item.PRDLST_DCNM?.trim() || null,
+      image_url: null,
+    }
+  } catch {
+    return null
+  }
+}
+
 interface OFFProduct {
   code: string
   product?: {
