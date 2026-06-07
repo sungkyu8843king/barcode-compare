@@ -925,7 +925,8 @@ function PriceComparison({ prices }: { prices: PriceSnapshot[] }) {
       <div className="flex gap-2">
         {([
           { value: 'all',    label: '전체',      count: prices.length, icon: '' },
-          { value: 'rocket', label: '로켓배송만', count: rocketCount,   icon: '🚀' },
+          // 로켓배송 상품이 있을 때만 노출 (쿠팡 API 키 발급 후 자동 표시)
+          ...(rocketCount > 0 ? [{ value: 'rocket' as const, label: '로켓배송만', count: rocketCount, icon: '🚀' }] : []),
           { value: 'free',   label: '무료배송만', count: freeCount,     icon: '🚚' },
           { value: 'paid',   label: '유료배송만', count: paidCount,     icon: '' },
         ] as { value: ShippingFilter; label: string; count: number; icon: string }[]).map(opt => (
