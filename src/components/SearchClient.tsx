@@ -801,6 +801,7 @@ function PriceSection({
                     <p className="text-[10px] font-medium" style={{ color: price.delivery_type === 'ROCKET_FRESH' ? '#00b493' : price.delivery_type === 'DAWN' ? '#5b21b6' : '#E8322B' }}>
                       {price.delivery_type === 'ROCKET_FRESH' ? '🥬 로켓프레시 와우무료' : price.delivery_type === 'DAWN' ? '🌙 새벽배송 와우무료' : '🚀 와우 무료배송'}
                     </p>
+                    <p className="text-[10px] text-blue-500 font-medium">무료반품</p>
                     <p className="text-[10px] text-gray-400">일반 ~{(price.price + 3000).toLocaleString()}원</p>
                   </>
                 ) : price.shipping_fee === 0 ? (
@@ -846,7 +847,7 @@ function PriceSection({
           <span className="text-yellow-500 text-xs mt-0.5 shrink-0">⚠</span>
           <p className="text-[11px] text-yellow-700 leading-relaxed">
             쿠팡 링크를 통해 구매하시면 쿠팡 파트너스 활동의 일환으로 일정액의 수수료를 제공받을 수 있습니다.
-            <span className="font-medium"> 🚀 로켓배송</span> 상품은 쿠팡 와우 회원 기준 무료배송이며, 일반 회원은 3,000원 또는 19,800원 이상 무료입니다.
+            <span className="font-medium"> 🚀 로켓배송</span> 상품은 쿠팡 와우 회원 기준 <span className="font-medium">무료배송 · 무료반품</span>이며, 일반 회원은 배송비 3,000원 (19,800원 이상 무료)입니다.
           </p>
         </div>
       )}
