@@ -4,9 +4,9 @@ import { redis } from './redis'
 export type UserTier = 'guest' | 'free' | 'donor'
 
 export const DAILY_LIMITS: Record<UserTier, number> = {
-  guest: 5,
-  free: 10,
-  donor: 100,
+  guest: 100,
+  free: 200,
+  donor: 1000,
 }
 
 // 비회원은 IP 기반 Redis 카운터
