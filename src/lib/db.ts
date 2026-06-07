@@ -108,16 +108,25 @@ export async function insertProductRequest(barcode: string, imageData: string | 
   } catch { return null }
 }
 
-// 신규 등록 제품 (이미지 있는 것 우선)
+// 신규 등록 제품 (이미지 있는 것, 최근 업데이트 순)
 export async function getNewProducts(limit = 12) {
   try {
     return await sql`
-      SELECT barcode, name, brand, image_url, created_at
+      SELECT barcode, name, brand, image_url, updated_at
       FROM products
-      ORDER BY created_at DESC
+      WHERE image_url IS NOT NULL
+      ORDER BY updated_at DESC
       LIMIT ${limit}
     `
   } catch { return [] }
+}
+
+// 전체 제품 수
+export async function getProductCount() {
+  try {
+    const rows = await sql`SELECT COUNT(*) AS count FROM products`
+    return Number(rows[0]?.count ?? 0)
+  } catch { return 0 }
 }
 
 // 제품 목록 검색

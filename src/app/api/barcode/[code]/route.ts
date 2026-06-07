@@ -109,22 +109,30 @@ export async function GET(
 
         if (naverResult.prices.length > 0) {
           if (!product) {
-            // 신규 등록: 한국어 이름 우선
+            // 신규 등록: 한국어 이름 + 네이버 이미지 저장
             const name = naverKoreanName || naverResult.inferredName || barcode
             const inserted = await upsertProduct({
               barcode,
               name,
               brand: naverResult.inferredBrand,
               category: naverResult.inferredCategory,
+              image_url: naverResult.inferredImage,
             })
             product = inserted as Product
             if (product) await setCachedProduct(barcode, product)
           } else if (naverKoreanName && nameIsEnglish) {
-            // 기존 영어 이름 → 한국어로 교체 (비동기)
-            upsertProduct({ barcode, name: naverKoreanName, brand: product.brand, category: product.category, image_url: product.image_url })
+            // 기존 영어 이름 → 한국어로 교체, 이미지도 없으면 추가 (비동기)
+            const newImageUrl = product.image_url || naverResult.inferredImage
+            upsertProduct({ barcode, name: naverKoreanName, brand: product.brand, category: product.category, image_url: newImageUrl })
               .then(updated => { if (updated) setCachedProduct(barcode, updated) })
               .catch(console.error)
             product = { ...product, name: naverKoreanName }
+          } else if (!product.image_url && naverResult.inferredImage) {
+            // 이미지 없는 기존 제품 → 네이버 이미지 추가 (비동기)
+            upsertProduct({ barcode, name: product.name, brand: product.brand, category: product.category, image_url: naverResult.inferredImage })
+              .then(updated => { if (updated) setCachedProduct(barcode, updated) })
+              .catch(console.error)
+            product = { ...product, image_url: naverResult.inferredImage }
           }
 
           insertPrices(naverResult.prices).catch(console.error)

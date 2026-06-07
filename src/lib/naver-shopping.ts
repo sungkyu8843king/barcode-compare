@@ -65,6 +65,7 @@ export interface NaverSearchResult {
   inferredName: string | null
   inferredBrand: string | null
   inferredCategory: string | null
+  inferredImage: string | null
 }
 
 export async function searchByBarcode(barcode: string, productName?: string, englishNameHint?: string): Promise<NaverSearchResult> {
@@ -100,6 +101,7 @@ export async function searchByBarcode(barcode: string, productName?: string, eng
   const inferredName = first ? cleanNaverTitle(first.title) : null
   const inferredBrand = first?.brand || first?.maker || null
   const inferredCategory = first?.category3 || first?.category2 || first?.category1 || null
+  const inferredImage = first?.image || null
 
   const prices: PriceSnapshot[] = validItems.slice(0, 10).map((item, idx) => ({
     id: idx,
@@ -114,7 +116,7 @@ export async function searchByBarcode(barcode: string, productName?: string, eng
     fetched_at: now,
   }))
 
-  return { prices, inferredName, inferredBrand, inferredCategory }
+  return { prices, inferredName, inferredBrand, inferredCategory, inferredImage }
 }
 
 export function cleanNaverTitle(title: string): string {

@@ -2,25 +2,32 @@ import { auth } from '@/lib/auth'
 import { signIn, signOut } from '@/lib/auth'
 import SearchClient from '@/components/SearchClient'
 import { DAILY_LIMITS } from '@/lib/rate-limit'
+import { getProductCount } from '@/lib/db'
 
 export default async function Home() {
   const session = await auth()
   const user = session?.user as { name?: string; image?: string; email?: string; tier?: string } | undefined
   const tier = user?.tier || 'guest'
   const limit = DAILY_LIMITS[tier as keyof typeof DAILY_LIMITS] ?? DAILY_LIMITS.guest
+  const productCount = await getProductCount()
 
   return (
     <main className="min-h-screen bg-gray-50">
       {/* 헤더 */}
       <header className="bg-white shadow-sm sticky top-0 z-40">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <a href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
             <span className="text-xl">📦</span>
             <div>
               <h1 className="text-lg font-bold text-gray-900">바코드 가격 비교</h1>
-              <p className="text-xs text-gray-400">오프라인 vs 온라인 최저가</p>
+              <p className="text-xs text-gray-400">
+                오프라인 vs 온라인 최저가
+                <span className="ml-1.5 text-blue-500 font-medium">
+                  {productCount.toLocaleString()}개 상품
+                </span>
+              </p>
             </div>
-          </div>
+          </a>
 
           {/* 로그인/유저 영역 */}
           {user ? (
