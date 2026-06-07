@@ -44,6 +44,12 @@ export default function SearchClient({ tier }: SearchClientProps) {
   const [registrationResult, setRegistrationResult] = useState<{ message: string; product: any } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const [showFeedback, setShowFeedback] = useState(false)
+  const [feedbackType, setFeedbackType] = useState('wrong_product')
+  const [feedbackQuery, setFeedbackQuery] = useState('')
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false)
+  const [feedbackDone, setFeedbackDone] = useState<string | null>(null)
+
   const fetchRecentSearches = useCallback(async () => {
     try {
       const res = await fetch('/api/recent-searches')
@@ -83,6 +89,9 @@ export default function SearchClient({ tier }: SearchClientProps) {
     setShowRegistration(false)
     setRegistrationResult(null)
     setRegistrationImage(null)
+    setShowFeedback(false)
+    setFeedbackDone(null)
+    setFeedbackQuery('')
 
     try {
       const res = await fetch(`/api/barcode/${code}`)
@@ -137,6 +146,36 @@ export default function SearchClient({ tier }: SearchClientProps) {
       setRegistrationResult({ message: '오류가 발생했습니다.', product: null })
     } finally {
       setRegistering(false)
+    }
+  }
+
+  async function handleFeedback(retrySearch: boolean) {
+    if (!barcode) return
+    setFeedbackSubmitting(true)
+    try {
+      const res = await fetch('/api/product-feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          barcode,
+          feedbackType,
+          userQuery: retrySearch ? feedbackQuery.trim() : undefined,
+          note: null,
+        }),
+      })
+      const data = await res.json()
+      if (data.retried && data.prices?.length > 0) {
+        setResult(prev => prev ? { ...prev, prices: data.prices } : prev)
+        setFeedbackDone(data.message)
+        setShowFeedback(false)
+      } else {
+        setFeedbackDone(data.message || '신고가 접수되었습니다. 감사합니다!')
+        setShowFeedback(false)
+      }
+    } catch {
+      setFeedbackDone('오류가 발생했습니다.')
+    } finally {
+      setFeedbackSubmitting(false)
     }
   }
 
@@ -396,6 +435,83 @@ export default function SearchClient({ tier }: SearchClientProps) {
                   <p>온라인 판매 정보를 찾을 수 없습니다</p>
                 </div>
               )
+            )}
+
+            {/* ── 검색 결과 신고 ── */}
+            {feedbackDone ? (
+              <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-sm text-green-700 flex items-center gap-2">
+                <span>✅</span> {feedbackDone}
+              </div>
+            ) : !showFeedback ? (
+              <button
+                onClick={() => setShowFeedback(true)}
+                className="w-full py-2.5 text-xs text-gray-400 hover:text-gray-600 border border-dashed border-gray-200 rounded-xl hover:border-gray-300 transition-colors"
+              >
+                검색 결과가 맞지 않나요? 신고하기
+              </button>
+            ) : (
+              <div className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-gray-800">검색 결과 개선 신고</p>
+                  <button onClick={() => setShowFeedback(false)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
+                </div>
+
+                {/* 신고 유형 선택 */}
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { value: 'wrong_product', label: '다른 제품' },
+                    { value: 'wrong_quantity', label: '수량 오류' },
+                    { value: 'wrong_price', label: '가격 오류' },
+                    { value: 'other', label: '기타' },
+                  ].map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setFeedbackType(opt.value)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${feedbackType === opt.value ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* 올바른 제품명 입력 (재검색용) */}
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">올바른 제품명 입력 시 즉시 재검색</label>
+                  <input
+                    type="text"
+                    value={feedbackQuery}
+                    onChange={e => setFeedbackQuery(e.target.value)}
+                    placeholder="예: 농심 신라면 120g 5개입"
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                {/* 버튼 */}
+                <div className="flex gap-2">
+                  {feedbackQuery.trim() && (
+                    <button
+                      onClick={() => handleFeedback(true)}
+                      disabled={feedbackSubmitting}
+                      className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium disabled:opacity-50 hover:bg-blue-700 transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      {feedbackSubmitting ? (
+                        <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                      ) : '🔍'}
+                      재검색
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleFeedback(false)}
+                    disabled={feedbackSubmitting}
+                    className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-xl text-sm font-medium disabled:opacity-50 hover:bg-gray-200 transition-colors"
+                  >
+                    신고만 하기
+                  </button>
+                </div>
+              </div>
             )}
 
             <p className="text-xs text-center text-gray-400">
