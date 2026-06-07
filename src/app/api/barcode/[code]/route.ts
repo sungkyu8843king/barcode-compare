@@ -7,6 +7,7 @@ import { searchCoupang } from '@/lib/coupang'
 import { auth } from '@/lib/auth'
 import { checkGuestLimit, checkUserLimit, DAILY_LIMITS } from '@/lib/rate-limit'
 import { BarcodeSearchResult, Product, PriceSnapshot } from '@/types'
+import { parseProductName } from '@/lib/claude-ai'
 
 export async function GET(
   req: NextRequest,
@@ -115,24 +116,50 @@ export async function GET(
 
         if (naverResult.prices.length > 0) {
           if (!product) {
-            // 신규 등록: 한국어 이름 + 네이버 이미지 + spec 저장
-            const name = naverKoreanName || naverResult.inferredName || barcode
+            // 신규 등록: Claude로 제품명 정제 후 저장
+            const rawName = naverKoreanName || naverResult.inferredName || barcode
+            let finalName = rawName
+            let finalBrand = naverResult.inferredBrand
+            let finalSpec = naverResult.inferredSpec
+
+            if (rawName !== barcode && process.env.ANTHROPIC_API_KEY) {
+              const parsed = await parseProductName(rawName, barcode)
+              if (parsed?.name) {
+                finalName = parsed.name
+                finalBrand = parsed.brand || finalBrand
+                finalSpec = parsed.spec || finalSpec
+              }
+            }
+
             const inserted = await upsertProduct({
               barcode,
-              name,
-              brand: naverResult.inferredBrand,
+              name: finalName,
+              brand: finalBrand,
               category: naverResult.inferredCategory,
               image_url: naverResult.inferredImage,
-              spec: naverResult.inferredSpec,
+              spec: finalSpec,
             })
             product = inserted as Product
             if (product) await setCachedProduct(barcode, product)
           } else if (naverKoreanName && nameIsEnglish && product) {
-            // 기존 영어 이름 → 한국어로 교체, 이미지도 없으면 추가 (비동기)
+            // 기존 영어 이름 → Claude 정제 후 한국어로 교체 (비동기)
             const newImageUrl = product.image_url || naverResult.inferredImage
-            upsertProduct({ barcode, name: naverKoreanName, brand: product.brand, category: product.category, image_url: newImageUrl, spec: naverResult.inferredSpec })
-              .then(updated => { if (updated) setCachedProduct(barcode, updated) })
-              .catch(console.error)
+            const refineAndSave = async () => {
+              let cleanName = naverKoreanName
+              let cleanBrand = product!.brand
+              let cleanSpec = naverResult.inferredSpec
+              if (process.env.ANTHROPIC_API_KEY) {
+                const parsed = await parseProductName(naverKoreanName, barcode)
+                if (parsed?.name) {
+                  cleanName = parsed.name
+                  cleanBrand = parsed.brand || cleanBrand
+                  cleanSpec = parsed.spec || cleanSpec
+                }
+              }
+              const updated = await upsertProduct({ barcode, name: cleanName, brand: cleanBrand, category: product!.category, image_url: newImageUrl, spec: cleanSpec })
+              if (updated) setCachedProduct(barcode, updated)
+            }
+            refineAndSave().catch(console.error)
             product = { ...product, name: naverKoreanName }
           } else {
             // spec 없는 기존 제품 → 네이버 결과에서 추출해서 보완 (비동기)

@@ -94,9 +94,10 @@ export async function improveSearchQuery(
 }
 
 /**
- * 제품명에서 브랜드/제품명/규격을 파싱 (외부 API에서 이상한 이름이 올 때 정리용)
+ * 네이버 쇼핑 제목(광고성 문구 포함)을 정제해서 표준 제품명/브랜드/규격으로 파싱
+ * 예: "농심 신라면 120g x5개 묶음팩 특가!!! 무료배송" → {name:"신라면 5개입", brand:"농심", spec:"120g x5"}
  */
-export async function parseProductName(rawName: string): Promise<{
+export async function parseProductName(rawName: string, barcode?: string): Promise<{
   name: string
   brand: string | null
   spec: string | null
@@ -106,19 +107,24 @@ export async function parseProductName(rawName: string): Promise<{
   try {
     const msg = await client.messages.create({
       model: MODEL,
-      max_tokens: 120,
+      max_tokens: 150,
       messages: [{
         role: 'user',
-        content: `한국 상품명을 파싱해서 JSON으로 반환하세요.
-상품명: ${rawName}
+        content: `한국 마트/편의점에서 파는 소비재 상품명을 정제해 주세요.
+입력: ${rawName}${barcode ? `\n바코드: ${barcode}` : ''}
 
-형식: {"name":"상품명(브랜드/규격 제외)","brand":"브랜드명 또는 null","spec":"용량/중량/수량 또는 null"}
-JSON만 출력하세요.`
+규칙:
+- name: 브랜드·규격·광고문구 없는 순수 제품명 (예: "신라면", "왕교자만두", "참이슬 후레쉬")
+- brand: 제조사/브랜드명 (예: "농심", "CJ", "하이트진로") — 모르면 null
+- spec: 용량·중량·수량 (예: "120g", "1.8L", "5개입") — 없으면 null
+
+JSON만 출력: {"name":"...","brand":"...또는 null","spec":"...또는 null"}`
       }],
     })
 
     const text = (msg.content[0] as any).text?.trim() ?? ''
     const json = JSON.parse(text)
+    if (typeof json.name !== 'string') return null
     return json
   } catch {
     return null
