@@ -1,18 +1,30 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, lazy, Suspense } from 'react'
 import Image from 'next/image'
 import { BarcodeSearchResult, PLATFORMS } from '@/types'
+
+const BarcodeScanner = lazy(() => import('@/components/BarcodeScanner'))
 
 export default function Home() {
   const [barcode, setBarcode] = useState('')
   const [result, setResult] = useState<BarcodeSearchResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [scanning, setScanning] = useState(false)
+
+  async function handleScanResult(code: string) {
+    setScanning(false)
+    setBarcode(code)
+    await search(code)
+  }
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault()
-    const code = barcode.trim()
+    await search(barcode.trim())
+  }
+
+  async function search(code: string) {
     if (!code) return
 
     setLoading(true)
@@ -48,17 +60,37 @@ export default function Home() {
         </div>
       </header>
 
+      {/* 카메라 스캐너 */}
+      {scanning && (
+        <Suspense fallback={null}>
+          <BarcodeScanner onScan={handleScanResult} onClose={() => setScanning(false)} />
+        </Suspense>
+      )}
+
       <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
         <form onSubmit={handleSearch} className="bg-white rounded-2xl shadow-sm p-6">
           <label className="block text-sm font-medium text-gray-700 mb-2">
             바코드 번호 입력
           </label>
           <div className="flex gap-2">
+            {/* 카메라 버튼 */}
+            <button
+              type="button"
+              onClick={() => setScanning(true)}
+              className="bg-gray-900 text-white px-4 py-3 rounded-xl hover:bg-gray-700 transition-colors flex items-center gap-1.5 flex-shrink-0"
+              title="카메라로 스캔"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              <span className="text-sm font-medium hidden sm:block">스캔</span>
+            </button>
             <input
               type="text"
               value={barcode}
               onChange={e => setBarcode(e.target.value.replace(/\D/g, ''))}
-              placeholder="8~14자리 숫자 (예: 8801234567890)"
+              placeholder="8~14자리 숫자"
               className="flex-1 border border-gray-200 rounded-xl px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               maxLength={14}
               inputMode="numeric"
@@ -66,13 +98,13 @@ export default function Home() {
             <button
               type="submit"
               disabled={loading || barcode.length < 8}
-              className="bg-blue-600 text-white px-6 py-3 rounded-xl font-medium disabled:opacity-50 hover:bg-blue-700 transition-colors"
+              className="bg-blue-600 text-white px-5 py-3 rounded-xl font-medium disabled:opacity-50 hover:bg-blue-700 transition-colors flex-shrink-0"
             >
-              {loading ? '검색 중...' : '검색'}
+              {loading ? '...' : '검색'}
             </button>
           </div>
           <p className="mt-2 text-xs text-gray-400">
-            * 모바일 앱에서는 카메라로 바코드를 스캔할 수 있습니다
+            카메라 버튼을 눌러 바코드를 스캔하거나 번호를 직접 입력하세요
           </p>
         </form>
 

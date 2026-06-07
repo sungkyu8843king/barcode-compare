@@ -59,18 +59,26 @@ export async function GET(
         await setCachedPrices(barcode, dbPrices)
       } else {
         const queryName = product?.name || barcode
-        const naverPrices = await searchByBarcode(barcode, queryName)
+        const naverResult = await searchByBarcode(barcode, queryName)
 
-        if (naverPrices.length > 0) {
-          // 제품이 DB에 없으면 먼저 등록 (FK 제약)
+        if (naverResult.prices.length > 0) {
+          // 제품이 DB에 없으면 네이버 결과에서 추출한 정보로 등록
           if (!product) {
-            await upsertProduct({ barcode, name: barcode })
+            const name = naverResult.inferredName || barcode
+            const inserted = await upsertProduct({
+              barcode,
+              name,
+              brand: naverResult.inferredBrand,
+              category: naverResult.inferredCategory,
+            })
+            product = inserted as Product
+            if (product) await setCachedProduct(barcode, product)
           }
           // 비동기 저장 (응답 블로킹 없음)
-          insertPrices(naverPrices).catch(console.error)
+          insertPrices(naverResult.prices).catch(console.error)
 
-          prices = naverPrices
-          await setCachedPrices(barcode, naverPrices)
+          prices = naverResult.prices
+          await setCachedPrices(barcode, naverResult.prices)
         }
       }
     }

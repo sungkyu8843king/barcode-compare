@@ -25,30 +25,44 @@ export async function searchNaverShopping(query: string): Promise<NaverShoppingI
   }
 }
 
-export async function searchByBarcode(barcode: string, productName?: string): Promise<PriceSnapshot[]> {
+export interface NaverSearchResult {
+  prices: PriceSnapshot[]
+  inferredName: string | null   // 검색 결과에서 추출한 제품명
+  inferredBrand: string | null
+  inferredCategory: string | null
+}
+
+export async function searchByBarcode(barcode: string, productName?: string): Promise<NaverSearchResult> {
   // 바코드로 먼저 검색, 결과 없으면 제품명으로 재검색
   let items = await searchNaverShopping(barcode)
 
-  if (items.length === 0 && productName) {
+  if (items.length === 0 && productName && productName !== barcode) {
     items = await searchNaverShopping(productName)
   }
 
+  const validItems = items.filter(item => item.lprice && parseInt(item.lprice) > 0)
   const now = new Date().toISOString()
 
-  return items
-    .filter(item => item.lprice && parseInt(item.lprice) > 0)
-    .map((item, idx) => ({
-      id: idx,
-      barcode,
-      platform: 'naver' as Platform,
-      price: parseInt(item.lprice),
-      original_price: item.hprice ? parseInt(item.hprice) : null,
-      discount_rate: null,
-      url: item.link,
-      seller_name: item.mallName,
-      in_stock: true,
-      fetched_at: now,
-    }))
+  // 첫 번째 결과에서 제품 정보 추출
+  const first = validItems[0]
+  const inferredName = first ? cleanNaverTitle(first.title) : null
+  const inferredBrand = first?.brand || first?.maker || null
+  const inferredCategory = first?.category3 || first?.category2 || first?.category1 || null
+
+  const prices: PriceSnapshot[] = validItems.map((item, idx) => ({
+    id: idx,
+    barcode,
+    platform: 'naver' as Platform,
+    price: parseInt(item.lprice),
+    original_price: item.hprice ? parseInt(item.hprice) : null,
+    discount_rate: null,
+    url: item.link,
+    seller_name: item.mallName,
+    in_stock: true,
+    fetched_at: now,
+  }))
+
+  return { prices, inferredName, inferredBrand, inferredCategory }
 }
 
 // HTML 태그 제거 (네이버 API 응답에 <b> 태그 포함됨)
