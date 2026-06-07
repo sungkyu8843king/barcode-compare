@@ -702,6 +702,24 @@ function PriceSection({
   const cheapestTotal = cheapest.price + (cheapest.shipping_fee ?? 0)
   const cheapestHasShipping = cheapest.shipping_fee !== null && cheapest.shipping_fee !== undefined && cheapest.shipping_fee > 0
 
+  // 단품 최저가 (전체 목록 기준) — 루프 바깥에서 한 번만 계산
+  const singlePrice = allPrices ? getSingleUnitPrice(allPrices) : null
+
+  // 단품이 없으면 현재 섹션 내 묶음 중 가장 비싼 개당가를 기준으로 삼음
+  const sectionPerUnits = sorted.slice(0, 8).map(p => {
+    const title = p.product_title || p.seller_name || ''
+    const qty = extractQuantity(title)
+    if (qty <= 1) return null
+    const total = p.price + (p.shipping_fee ?? 0)
+    return Math.round(total / qty)
+  })
+  const validPerUnits = sectionPerUnits.filter((u): u is number => u !== null)
+  const maxSectionPerUnit = validPerUnits.length > 1 ? Math.max(...validPerUnits) : null
+
+  // 비교 기준: 단품 > 섹션 내 최고 개당가 > null
+  const baselinePrice = singlePrice ?? maxSectionPerUnit
+  const isSingleBaseline = singlePrice !== null
+
   return (
     <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
       {/* 섹션 헤더 */}
@@ -735,10 +753,9 @@ function PriceSection({
           const qty = extractQuantity(titleText)
           const perUnit = qty > 1 ? Math.round(totalPrice / qty) : null
 
-          // 단품 최저가 대비 묶음 절약액 계산
-          const singlePrice = allPrices ? getSingleUnitPrice(allPrices) : null
-          const saving = (perUnit && singlePrice && perUnit < singlePrice)
-            ? singlePrice - perUnit : null
+          // 절약액: 단품 또는 섹션 내 최고 개당가 대비
+          const saving = (perUnit && baselinePrice && perUnit < baselinePrice)
+            ? baselinePrice - perUnit : null
 
           // 묶음 구매 시 무료배송 여부
           const bundleFreeShip = qty > 1 && (price.is_rocket || price.shipping_fee === 0)
@@ -771,7 +788,7 @@ function PriceSection({
                   )}
                   {saving && saving > 0 && (
                     <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">
-                      단품보다 개당 {saving.toLocaleString()}원 저렴
+                      {isSingleBaseline ? '단품' : '다른 묶음'}보다 개당 {saving.toLocaleString()}원 저렴
                     </span>
                   )}
                   {bundleFreeShip && !saving && (
@@ -819,10 +836,10 @@ function PriceSection({
                     <p className="text-[10px] text-gray-400">+ 배송비 별도</p>
                   </>
                 )}
-                {/* 묶음 개당가 vs 단품 비교 라인 */}
-                {perUnit && singlePrice && (
+                {/* 묶음 개당가 vs 기준가 비교 라인 */}
+                {perUnit && baselinePrice && perUnit < baselinePrice && (
                   <p className="text-[10px] text-gray-400">
-                    단품 {singlePrice.toLocaleString()} → 개당 {perUnit.toLocaleString()}
+                    {isSingleBaseline ? '단품' : '비교'} {baselinePrice.toLocaleString()} → 개당 {perUnit.toLocaleString()}
                   </p>
                 )}
               </div>
