@@ -287,7 +287,11 @@ export async function searchByBarcode(
     if (validatedId && confidence === 'high') {
       console.log(`[Claude] 검증된 productId: ${validatedId}`)
       const confirmed = items.filter(i => i.productId === validatedId)
-      if (confirmed.length > 0) items = confirmed
+      // 2개 이상일 때만 좁히기 — 1개면 다른 묶음/판매처도 보여줌
+      if (confirmed.length >= 2) items = confirmed
+      else if (confirmed.length === 1) {
+        items = [...confirmed, ...items.filter(i => i.productId !== validatedId)]
+      }
     }
   }
 
