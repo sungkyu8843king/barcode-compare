@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
   if (userQuery?.trim()) {
     try {
       const items = await searchNaverShopping(userQuery.trim(), 20)
-      const validItems = items.filter(i => i.lprice && parseInt(i.lprice) > 0)
+      const validItems = items.filter(i => i.lprice && parseInt(i.lprice) >= 100)
       const now = new Date().toISOString()
 
       const prices: PriceSnapshot[] = validItems.slice(0, 10).map((item, idx) => ({

@@ -578,7 +578,7 @@ function ShippingBadge({ fee, isRocket }: { fee?: number | null; isRocket?: bool
   if (isRocket) {
     return (
       <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#E8322B] text-white">
-        로켓 무료
+        🚀 와우 무료배송
       </span>
     )
   }
@@ -588,7 +588,13 @@ function ShippingBadge({ fee, isRocket }: { fee?: number | null; isRocket?: bool
   if (fee === 0) {
     return <span className="text-[10px] font-medium text-green-600 bg-green-50 px-1.5 py-0.5 rounded">무료배송</span>
   }
-  return <span className="text-[10px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">+{fee.toLocaleString()}원</span>
+  return <span className="text-[10px] text-red-500 bg-red-50 px-1.5 py-0.5 rounded">+배송 {fee.toLocaleString()}원</span>
+}
+
+function extractQuantity(title: string): number {
+  const m = title.match(/(\d+)\s*개/)
+  const qty = m ? parseInt(m[1]) : 1
+  return qty >= 2 && qty <= 500 ? qty : 1
 }
 
 import type { PriceSnapshot } from '@/types'
@@ -617,6 +623,7 @@ function PriceSection({
 
   const cheapest = sorted[0]
   const cheapestTotal = cheapest.price + (cheapest.shipping_fee ?? 0)
+  const cheapestHasShipping = cheapest.shipping_fee !== null && cheapest.shipping_fee !== undefined && cheapest.shipping_fee > 0
 
   return (
     <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
@@ -628,55 +635,78 @@ function PriceSection({
         </div>
         <div className="text-right">
           <span className="text-xs text-gray-500">최저 </span>
-          <span className={`text-sm font-bold ${color}`}>{cheapest.price.toLocaleString()}원</span>
-          {cheapest.shipping_fee !== null && cheapest.shipping_fee !== undefined && (
+          <span className={`text-sm font-bold ${color}`}>
+            {cheapestHasShipping ? cheapestTotal.toLocaleString() : cheapest.price.toLocaleString()}원
+          </span>
+          {cheapestHasShipping && (
             <span className="text-xs text-gray-400 ml-1">
-              {cheapest.shipping_fee === 0 ? '(무료배송)' : `(+배송 ${cheapest.shipping_fee.toLocaleString()}원)`}
+              ({cheapest.price.toLocaleString()}+배송{cheapest.shipping_fee!.toLocaleString()})
             </span>
+          )}
+          {cheapest.shipping_fee === 0 && !cheapest.is_rocket && (
+            <span className="text-xs text-green-600 ml-1">무료배송</span>
           )}
         </div>
       </div>
 
       {/* 상품 목록 */}
       <div className="divide-y divide-gray-50">
-        {sorted.slice(0, 8).map((price, idx) => (
-          <a
-            key={idx}
-            href={price.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-3 px-5 py-3.5 hover:bg-gray-50 transition-colors"
-          >
-            {/* 순위 */}
-            <span className={`text-xs font-bold w-5 shrink-0 ${idx === 0 ? color : 'text-gray-300'}`}>
-              {idx + 1}
-            </span>
+        {sorted.slice(0, 8).map((price, idx) => {
+          const hasShipping = price.shipping_fee !== null && price.shipping_fee !== undefined && price.shipping_fee > 0
+          const totalPrice = price.price + (hasShipping ? price.shipping_fee! : 0)
+          const titleText = price.product_title || price.seller_name || ''
+          const qty = extractQuantity(titleText)
+          const perUnit = qty > 1 ? Math.round(totalPrice / qty) : null
 
-            {/* 판매자명 + 실제 판매 제품명 */}
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-800 truncate">{price.seller_name || '판매자 정보 없음'}</p>
-              {price.product_title && (
-                <p className="text-[11px] text-gray-500 truncate mt-0.5">{price.product_title}</p>
-              )}
-              <div className="flex items-center gap-1 mt-0.5">
-                <ShippingBadge fee={price.shipping_fee} isRocket={price.is_rocket} />
-                {price.shipping_fee !== null && price.shipping_fee !== undefined && price.shipping_fee > 0 && (
-                  <span className="text-[10px] text-gray-400">
-                    총 {(price.price + price.shipping_fee).toLocaleString()}원
-                  </span>
+          return (
+            <a
+              key={idx}
+              href={price.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-3 px-5 py-3.5 hover:bg-gray-50 transition-colors"
+            >
+              {/* 순위 */}
+              <span className={`text-xs font-bold w-5 shrink-0 ${idx === 0 ? color : 'text-gray-300'}`}>
+                {idx + 1}
+              </span>
+
+              {/* 판매자명 + 실제 판매 제품명 */}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-800 truncate">{price.seller_name || '판매자 정보 없음'}</p>
+                {price.product_title && price.product_title !== price.seller_name && (
+                  <p className="text-[11px] text-gray-500 truncate mt-0.5">{price.product_title}</p>
+                )}
+                <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                  <ShippingBadge fee={price.shipping_fee} isRocket={price.is_rocket} />
+                  {perUnit && (
+                    <span className="text-[10px] font-medium text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">
+                      {qty}개입 · 개당 {perUnit.toLocaleString()}원
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* 가격 */}
+              <div className="text-right shrink-0">
+                {hasShipping ? (
+                  <>
+                    <p className={`font-bold ${idx === 0 ? color : 'text-gray-900'}`}>
+                      {totalPrice.toLocaleString()}원
+                    </p>
+                    <p className="text-[10px] text-gray-400">
+                      {price.price.toLocaleString()}+{price.shipping_fee!.toLocaleString()}
+                    </p>
+                  </>
+                ) : (
+                  <p className={`font-bold ${idx === 0 ? color : 'text-gray-900'}`}>
+                    {price.price.toLocaleString()}원
+                  </p>
                 )}
               </div>
-            </div>
-
-            {/* 가격 */}
-            <div className="text-right shrink-0">
-              <p className={`font-bold ${idx === 0 ? color : 'text-gray-900'}`}>
-                {price.price.toLocaleString()}원
-              </p>
-              {idx === 0 && <span className="text-[10px] text-gray-400">상품가</span>}
-            </div>
-          </a>
-        ))}
+            </a>
+          )
+        })}
       </div>
 
       {showCoupangNotice && (
@@ -696,24 +726,50 @@ function PriceComparison({ prices }: { prices: PriceSnapshot[] }) {
   const coupangPrices = prices.filter(p => p.platform === 'coupang')
   const otherPrices = prices.filter(p => p.platform !== 'naver' && p.platform !== 'coupang')
 
-  // 전체 기준 최저/최고 (상품가 기준)
-  const allSorted = [...prices].sort((a, b) => a.price - b.price)
+  // 총액(상품가+배송비) 기준 최저/최고
+  const allSorted = [...prices].sort((a, b) => {
+    const aTotal = a.price + (a.shipping_fee ?? 0)
+    const bTotal = b.price + (b.shipping_fee ?? 0)
+    return aTotal - bTotal
+  })
   const lowest = allSorted[0]
   const highest = allSorted[allSorted.length - 1]
+  const lowestTotal = lowest.price + (lowest.shipping_fee ?? 0)
+  const highestTotal = highest.price + (highest.shipping_fee ?? 0)
+  const lowestHasShip = lowest.shipping_fee !== null && lowest.shipping_fee !== undefined && lowest.shipping_fee > 0
+  const highestHasShip = highest.shipping_fee !== null && highest.shipping_fee !== undefined && highest.shipping_fee > 0
 
   return (
     <div className="space-y-3">
       {/* 요약 카드 */}
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-green-50 border border-green-200 rounded-2xl p-4">
-          <p className="text-xs text-green-600 font-medium mb-1">상품가 최저</p>
-          <p className="text-2xl font-bold text-green-700">{lowest.price.toLocaleString()}원</p>
+          <p className="text-xs text-green-600 font-medium mb-1">
+            {lowestHasShip ? '총액 최저 (배송포함)' : '최저가'}
+          </p>
+          <p className="text-2xl font-bold text-green-700">
+            {lowestHasShip ? lowestTotal.toLocaleString() : lowest.price.toLocaleString()}원
+          </p>
+          {lowestHasShip && (
+            <p className="text-[11px] text-green-600 mt-0.5">
+              상품 {lowest.price.toLocaleString()} + 배송 {lowest.shipping_fee!.toLocaleString()}원
+            </p>
+          )}
           <p className="text-xs text-green-600 mt-1">{getPlatformName(lowest.platform)}</p>
           <ShippingNotice fee={lowest.shipping_fee} isRocket={lowest.is_rocket} />
         </div>
         <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4">
-          <p className="text-xs text-orange-600 font-medium mb-1">상품가 최고</p>
-          <p className="text-2xl font-bold text-orange-700">{highest.price.toLocaleString()}원</p>
+          <p className="text-xs text-orange-600 font-medium mb-1">
+            {highestHasShip ? '총액 최고 (배송포함)' : '최고가'}
+          </p>
+          <p className="text-2xl font-bold text-orange-700">
+            {highestHasShip ? highestTotal.toLocaleString() : highest.price.toLocaleString()}원
+          </p>
+          {highestHasShip && (
+            <p className="text-[11px] text-orange-600 mt-0.5">
+              상품 {highest.price.toLocaleString()} + 배송 {highest.shipping_fee!.toLocaleString()}원
+            </p>
+          )}
           <p className="text-xs text-orange-600 mt-1">{getPlatformName(highest.platform)}</p>
           <ShippingNotice fee={highest.shipping_fee} isRocket={highest.is_rocket} />
         </div>
@@ -750,10 +806,9 @@ function PriceComparison({ prices }: { prices: PriceSnapshot[] }) {
 }
 
 function ShippingNotice({ fee, isRocket }: { fee?: number | null; isRocket?: boolean }) {
-  if (isRocket) return <p className="text-[10px] text-red-500 font-bold mt-1">🚀 로켓 무료배송</p>
+  if (isRocket) return <p className="text-[10px] text-red-500 font-bold mt-1">🚀 쿠팡 와우 무료배송</p>
   if (fee === 0) return <p className="text-[10px] text-green-600 font-medium mt-1">무료배송</p>
-  if (fee && fee > 0) return <p className="text-[10px] text-gray-500 mt-1">+배송비 {fee.toLocaleString()}원</p>
-  return <p className="text-[10px] text-gray-400 mt-1">배송비 별도 확인</p>
+  return null
 }
 
 async function compressImage(file: File, maxWidth = 400, quality = 0.65): Promise<string> {

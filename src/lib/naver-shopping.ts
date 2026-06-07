@@ -93,7 +93,7 @@ export async function searchByBarcode(barcode: string, productName?: string, eng
     }
   }
 
-  const validItems = items.filter(item => item.lprice && parseInt(item.lprice) > 0)
+  const validItems = items.filter(item => item.lprice && parseInt(item.lprice) >= 100)
   const now = new Date().toISOString()
 
   const first = validItems[0]

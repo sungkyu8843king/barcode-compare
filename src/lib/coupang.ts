@@ -37,11 +37,15 @@ export async function searchCoupang(keyword: string, barcode: string): Promise<C
     const now = new Date().toISOString()
 
     const prices: PriceSnapshot[] = items
-      .filter((item: any) => item.productPrice > 0)
-      .slice(0, 5)
+      .filter((item: any) => item.productPrice >= 100)
+      .slice(0, 8)
       .map((item: any, idx: number) => {
         const isRocket = !!(item.isRocket || item.badge === 'ROCKET' || item.deliveryType === 'ROCKET')
-        const shippingFee = isRocket ? 0 : (typeof item.deliveryFee === 'number' ? item.deliveryFee : null)
+        const isWow = !!(item.isWow || item.membershipType === 'WOW' || item.wowDelivery)
+        const isFreeShip = !!(item.isFreeShipping || item.freeDelivery)
+        const shippingFee = (isRocket || isWow || isFreeShip)
+          ? 0
+          : (typeof item.deliveryFee === 'number' ? item.deliveryFee : null)
         return {
           id: idx + 100,
           barcode,
@@ -50,11 +54,12 @@ export async function searchCoupang(keyword: string, barcode: string): Promise<C
           original_price: typeof item.salePrice === 'number' && item.salePrice !== item.productPrice ? item.salePrice : null,
           discount_rate: null,
           url: item.productUrl,
-          seller_name: item.productName?.slice(0, 50) || '쿠팡',
+          seller_name: item.productName?.slice(0, 80) || '쿠팡',
           in_stock: true,
           fetched_at: now,
           shipping_fee: shippingFee,
-          is_rocket: isRocket,
+          is_rocket: isRocket || isWow,
+          product_title: item.productName || null,
         }
       })
 
