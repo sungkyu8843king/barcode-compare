@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import sql from '@/lib/db'
-import { searchNaverShopping } from '@/lib/naver-shopping'
+import { searchNaverShopping, cleanNaverTitle, extractSpec } from '@/lib/naver-shopping'
+import { parseProductName } from '@/lib/claude-ai'
 import axios from 'axios'
 
 const FOODSAFETY_KEY = process.env.FOODSAFETY_API_KEY!
 const CRON_SECRET = process.env.CRON_SECRET
 
 export async function GET(req: NextRequest) {
-  // Vercel Cron 인증
   const authHeader = req.headers.get('authorization')
   if (CRON_SECRET && authHeader !== `Bearer ${CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -15,102 +15,76 @@ export async function GET(req: NextRequest) {
 
   const results: Record<string, number> = {}
 
-  // ── 1. 이미지 없거나 카탈로그 이미지로 보강 (50개/회) ──
+  // ── 1. 식품안전나라 C005 신규 제품 추가 ──
   try {
-    const noImageProducts = await sql`
-      SELECT barcode, name FROM products
-      WHERE name ~ '[가-힣]'
-      ORDER BY RANDOM()
-      LIMIT 50
-    `
+    results.c005Added = await fetchFoodsafetyBatch('C005', 'c005_offset', 500)
+  } catch (e) {
+    console.error('[cron] C005 실패:', e)
+    results.c005Added = 0
+  }
 
-    let imageUpdated = 0
-    for (const product of noImageProducts) {
-      try {
-        // 바코드로 먼저 시도, 없으면 이름으로
-        let items = await searchNaverShopping(product.barcode as string, 5)
-        if (items.length === 0) items = await searchNaverShopping(product.name as string, 5)
-        // 카탈로그 상품(공식 이미지) 우선
-        const catalogItem = items.find(i => i.productType === '1' && i.image)
-        const image = catalogItem?.image || items.find(i => i.image)?.image
-        // 카탈로그 이미지가 있으면 항상 업데이트, 없으면 이미지 없는 경우만
-        const needsUpdate = catalogItem || !product.image_url
-        if (image && needsUpdate) {
-          await sql`
-            UPDATE products SET image_url = ${image}, updated_at = NOW()
-            WHERE barcode = ${product.barcode}
-          `
-          imageUpdated++
-        }
-        await delay(200) // 네이버 API 레이트리밋 방지
-      } catch {}
-    }
-    results.imageUpdated = imageUpdated
+  // ── 2. 건강기능식품 DB (HFDB) ──
+  try {
+    results.hfdbAdded = await fetchFoodsafetyBatch('HFDB_04_01', 'hfdb_offset', 300)
+  } catch (e) {
+    console.error('[cron] HFDB 실패:', e)
+    results.hfdbAdded = 0
+  }
+
+  // ── 3. 이미지 없는 제품 → Naver 카탈로그 이미지 보강 (30개) ──
+  try {
+    results.imageEnriched = await enrichMissingImages(30)
   } catch (e) {
     console.error('[cron] 이미지 보강 실패:', e)
-    results.imageUpdated = 0
+    results.imageEnriched = 0
   }
 
-  // ── 2. 식품안전나라 신규 제품 추가 (건강기능식품 포함) ──
+  // ── 4. 제품명 Claude 정제 (이름이 지저분한 것 20개) ──
   try {
-    const added = await fetchFoodsafetyBatch()
-    results.foodsafetyAdded = added
+    results.namesRefined = await refineMessyNames(20)
   } catch (e) {
-    console.error('[cron] 식품안전나라 실패:', e)
-    results.foodsafetyAdded = 0
+    console.error('[cron] 이름 정제 실패:', e)
+    results.namesRefined = 0
   }
 
-  // ── 3. 전체 제품 수 ──
   const countRow = await sql`SELECT COUNT(*) AS c FROM products`
   results.totalProducts = Number(countRow[0]?.c ?? 0)
 
-  console.log('[cron] 완료:', results)
-  return NextResponse.json({ ok: true, ...results })
+  console.log('[cron/update-products] 완료:', results)
+  return NextResponse.json({ ok: true, ...results, ts: new Date().toISOString() })
 }
 
-async function fetchFoodsafetyBatch(): Promise<number> {
+// ── 식품안전나라 API 배치 (C005 / HFDB 공통) ──
+async function fetchFoodsafetyBatch(apiId: string, offsetKey: string, batchSize: number): Promise<number> {
   if (!FOODSAFETY_KEY) return 0
 
-  // 마지막으로 가져온 행 번호를 기록하는 간단한 방법:
-  // product_requests 테이블에 cron 메타정보 저장 (barcode='__cron_offset__')
   const metaRows = await sql`
-    SELECT image_data FROM product_requests
-    WHERE barcode = '__cron_offset__'
-    LIMIT 1
+    SELECT image_data FROM product_requests WHERE barcode = ${`__${offsetKey}__`} LIMIT 1
   `
   const lastOffset = Number(metaRows[0]?.image_data ?? 0)
   const start = lastOffset + 1
-  const end = lastOffset + 500
+  const end = lastOffset + batchSize
 
-  const url = `http://openapi.foodsafetykorea.go.kr/api/${FOODSAFETY_KEY}/C005/json/${start}/${end}`
-  const res = await axios.get(url, { timeout: 15000 })
-  const items: any[] = res.data?.C005?.row ?? []
+  const url = `http://openapi.foodsafetykorea.go.kr/api/${FOODSAFETY_KEY}/${apiId}/json/${start}/${end}`
+  const res = await axios.get(url, { timeout: 20000 })
+  const rows: any[] = res.data?.[apiId]?.row ?? []
 
-  if (items.length === 0) {
-    // 끝까지 다 가져왔으면 처음부터 다시
-    await sql`
-      INSERT INTO product_requests (barcode, image_data, status)
-      VALUES ('__cron_offset__', '0', 'cron')
-      ON CONFLICT DO NOTHING
-    `
-    await sql`
-      UPDATE product_requests SET image_data = '0'
-      WHERE barcode = '__cron_offset__'
-    `
+  // 끝에 도달하면 오프셋 리셋
+  if (rows.length === 0) {
+    await upsertMeta(`__${offsetKey}__`, '0')
     return 0
   }
 
-  // 중복 제거 후 UPSERT
   const seen = new Map<string, { barcode: string; name: string; brand: string | null; spec: string | null }>()
-  for (const item of items) {
-    const barcode = (item.BAR_CD ?? '').trim().replace(/\x00/g, '')
-    const name = (item.PRDLST_NM ?? '').trim().replace(/\x00/g, '')
+  for (const item of rows) {
+    const barcode = (item.BAR_CD ?? item.BARCODE ?? '').trim().replace(/\x00/g, '')
+    const name = (item.PRDLST_NM ?? item.PRDT_NM ?? item.PRDLST_DCNM ?? '').trim().replace(/\x00/g, '')
     if (barcode && /^\d{8,14}$/.test(barcode) && name) {
-      const rawSpec = (item.CAPACITY ?? item.NET_WT ?? item.CONTENT ?? '').trim().replace(/\x00/g, '')
+      const rawSpec = (item.CAPACITY ?? item.NET_WT ?? item.CONTENT ?? item.SERVING_SIZE ?? '').trim().replace(/\x00/g, '')
       seen.set(barcode, {
         barcode,
         name,
-        brand: (item.BSSH_NM ?? '').trim().replace(/\x00/g, '') || null,
+        brand: (item.BSSH_NM ?? item.ENTRPS_NM ?? '').trim().replace(/\x00/g, '') || null,
         spec: rawSpec || null,
       })
     }
@@ -122,25 +96,97 @@ async function fetchFoodsafetyBatch(): Promise<number> {
       INSERT INTO products (barcode, name, brand, spec)
       VALUES (${p.barcode}, ${p.name}, ${p.brand}, ${p.spec})
       ON CONFLICT (barcode) DO UPDATE SET
-        spec = COALESCE(EXCLUDED.spec, products.spec)
+        spec  = COALESCE(EXCLUDED.spec,  products.spec),
+        brand = COALESCE(EXCLUDED.brand, products.brand)
     `
     added++
   }
 
-  // 오프셋 업데이트
-  await sql`
-    INSERT INTO product_requests (barcode, image_data, status)
-    VALUES ('__cron_offset__', ${String(end)}, 'cron')
-    ON CONFLICT DO NOTHING
-  `
-  await sql`
-    UPDATE product_requests SET image_data = ${String(end)}
-    WHERE barcode = '__cron_offset__'
-  `
-
+  await upsertMeta(`__${offsetKey}__`, String(end))
   return added
 }
 
-function delay(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms))
+// ── 이미지 없는 제품에 Naver 카탈로그 이미지 보강 ──
+async function enrichMissingImages(limit: number): Promise<number> {
+  const products = await sql`
+    SELECT barcode, name, brand FROM products
+    WHERE image_url IS NULL
+      AND name ~ '[가-힣]'
+      AND LENGTH(name) >= 2
+    ORDER BY created_at DESC
+    LIMIT ${limit}
+  `
+
+  let enriched = 0
+  for (const p of products) {
+    try {
+      const query = p.brand ? `${p.brand} ${p.name}` : p.name as string
+      const items = await searchNaverShopping(query as string, 10)
+      const catalogItem = items.find(i => i.productType === '1' && i.image)
+      const anyItem = items.find(i => i.image)
+      const image = catalogItem?.image || anyItem?.image
+      const spec = catalogItem ? extractSpec(cleanNaverTitle(catalogItem.title)) : null
+
+      if (image) {
+        await sql`
+          UPDATE products SET
+            image_url  = ${image},
+            spec       = COALESCE(${spec}, spec),
+            updated_at = NOW()
+          WHERE barcode = ${p.barcode} AND image_url IS NULL
+        `
+        enriched++
+      }
+      await delay(300)
+    } catch {}
+  }
+  return enriched
 }
+
+// ── 지저분한 이름을 Claude로 정제 ──
+async function refineMessyNames(limit: number): Promise<number> {
+  if (!process.env.ANTHROPIC_API_KEY) return 0
+
+  const products = await sql`
+    SELECT barcode, name FROM products
+    WHERE (
+      LENGTH(name) > 30
+      OR name ~ '[!?【】★☆♥【]'
+      OR name ILIKE '%특가%'
+      OR name ILIKE '%무료배송%'
+      OR name ILIKE '%묶음%'
+    )
+    AND name ~ '[가-힣]'
+    ORDER BY updated_at ASC
+    LIMIT ${limit}
+  `
+
+  let refined = 0
+  for (const p of products) {
+    try {
+      const parsed = await parseProductName(p.name as string, p.barcode as string)
+      if (parsed?.name && parsed.name !== p.name) {
+        await sql`
+          UPDATE products SET
+            name       = ${parsed.name},
+            brand      = COALESCE(${parsed.brand}, brand),
+            spec       = COALESCE(${parsed.spec},  spec),
+            updated_at = NOW()
+          WHERE barcode = ${p.barcode}
+        `
+        refined++
+      }
+      await delay(150)
+    } catch {}
+  }
+  return refined
+}
+
+async function upsertMeta(key: string, value: string) {
+  await sql`
+    INSERT INTO product_requests (barcode, image_data, status) VALUES (${key}, ${value}, 'cron')
+    ON CONFLICT (barcode) DO UPDATE SET image_data = ${value}
+  `
+}
+
+function delay(ms: number) { return new Promise(r => setTimeout(r, ms)) }
