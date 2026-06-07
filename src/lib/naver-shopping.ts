@@ -152,7 +152,8 @@ export interface NaverSearchResult {
   inferredCategory: string | null
   inferredImage: string | null
   inferredImageIsOfficial: boolean
-  inferredSpec: string | null   // 용량/중량 추출값
+  inferredSpec: string | null
+  naverProductId: string | null   // 카탈로그 ID (누적 캐시용)
 }
 
 export async function searchByBarcode(
@@ -160,11 +161,23 @@ export async function searchByBarcode(
   productName?: string,
   brand?: string,
   spec?: string | null,
+  knownNaverProductId?: string | null,   // DB에 저장된 카탈로그 ID
 ): Promise<NaverSearchResult> {
   let items: NaverShoppingItem[] = []
   const hasKoreanName = productName && /[가-힣]/.test(productName)
 
-  if (hasKoreanName) {
+  // ── 0순위: 기존에 확인된 카탈로그 productId가 있으면 그걸로 필터 ──
+  if (knownNaverProductId) {
+    const query = productName || barcode
+    const allItems = await searchNaverShopping(query, 40)
+    const matched = allItems.filter(item => item.productId === knownNaverProductId)
+    if (matched.length > 0) {
+      items = matched
+    }
+    // 매핑된 ID로 결과가 0개면 (제품 단종/변경) 아래 일반 검색으로 fallback
+  }
+
+  if (items.length === 0 && hasKoreanName) {
     // ── 1순위: 브랜드 + 제품명 + 용량 조합 검색 (가장 정확) ──
     const cleanedBrand = brand ? cleanBrand(brand) : null
     const nameWithSpec = spec ? `${productName} ${spec}` : productName!
@@ -174,7 +187,7 @@ export async function searchByBarcode(
     if (validated.length >= 2) {
       items = validated
     } else if (fullItems.length > 0) {
-      items = fullItems // 검증 통과 못해도 결과 있으면 사용
+      items = fullItems
     }
 
     // ── 2순위: 제품명+용량만 검색 (브랜드 없이) ──
@@ -193,10 +206,9 @@ export async function searchByBarcode(
     }
   }
 
-  // ── 4순위: 바코드 검색 (한국 바코드 880*는 간혹 네이버에 등록됨) ──
+  // ── 4순위: 바코드 검색 ──
   if (items.length === 0) {
     const barcodeItems = await searchNaverShopping(barcode, 20)
-    // 한국어 제품명 알고 있으면 검증, 모르면 그대로 사용
     if (hasKoreanName && barcodeItems.length > 0) {
       const validated3 = filterByProductName(barcodeItems, productName!)
       items = validated3.length > 0 ? validated3 : []
@@ -228,6 +240,9 @@ export async function searchByBarcode(
   const inferredImage = imageSource?.image || null
   const inferredImageIsOfficial = !!catalogItem
 
+  // 처음 확인된 카탈로그 productId 추출 (누적 저장용)
+  const detectedProductId = catalogItem?.productId || validItems.find(i => i.productType === '1')?.productId || null
+
   const prices: PriceSnapshot[] = validItems.slice(0, 10).map((item, idx) => ({
     id: idx,
     barcode,
@@ -244,7 +259,7 @@ export async function searchByBarcode(
 
   const inferredSpec = inferredName ? extractSpec(inferredName) : null
 
-  return { prices, inferredName, inferredBrand, inferredCategory, inferredImage, inferredImageIsOfficial, inferredSpec }
+  return { prices, inferredName, inferredBrand, inferredCategory, inferredImage, inferredImageIsOfficial, inferredSpec, naverProductId: detectedProductId }
 }
 
 export function cleanNaverTitle(title: string): string {

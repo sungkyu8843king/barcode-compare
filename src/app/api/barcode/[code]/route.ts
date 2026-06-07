@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getProduct, upsertProduct, getRecentPrices, insertPrices, insertSearchLog } from '@/lib/db'
+import { getProduct, upsertProduct, getRecentPrices, insertPrices, insertSearchLog, getCatalogMap, saveCatalogMap } from '@/lib/db'
 import { getCachedPrices, setCachedPrices, getCachedProduct, setCachedProduct } from '@/lib/redis'
 import { searchByBarcode } from '@/lib/naver-shopping'
 import { lookupOpenFoodFacts, lookupUPCItemDB, lookupFoodsafety } from '@/lib/open-food-facts'
@@ -96,11 +96,14 @@ export async function GET(
       } else {
         const nameIsEnglish = product?.name ? !/[가-힣]/.test(product.name) : false
 
+        // 저장된 카탈로그 매핑 조회
+        const catalogMap = await getCatalogMap(barcode)
+
         // 네이버: DB 제품명 우선(브랜드 포함), 없으면 바코드 fallback
         // 쿠팡: 한국어 이름이 있으면 이름으로, 없으면 바코드로
         const coupangQuery = (product?.name && !nameIsEnglish) ? product.name : (product?.name || barcode)
         const [naverResult, coupangResult] = await Promise.all([
-          searchByBarcode(barcode, product?.name || undefined, product?.brand || undefined, (product as any)?.spec || undefined),
+          searchByBarcode(barcode, product?.name || undefined, product?.brand || undefined, (product as any)?.spec || undefined, catalogMap?.naver_product_id),
           searchCoupang(coupangQuery, barcode, product?.brand || undefined),
         ])
 
@@ -153,6 +156,11 @@ export async function GET(
           insertPrices(naverResult.prices).catch(console.error)
           prices = naverResult.prices
           await setCachedPrices(barcode, naverResult.prices)
+
+          // 새로 발견된 카탈로그 productId 저장 (없을 때만)
+          if (naverResult.naverProductId && !catalogMap?.naver_product_id) {
+            saveCatalogMap(barcode, naverResult.naverProductId).catch(console.error)
+          }
         }
       }
     }

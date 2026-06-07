@@ -131,6 +131,30 @@ export async function getProductCount() {
   } catch { return 0 }
 }
 
+// ── 카탈로그 매핑 ──
+
+export async function getCatalogMap(barcode: string): Promise<{ naver_product_id: string | null; coupang_product_id: string | null } | null> {
+  try {
+    const rows = await sql`
+      SELECT naver_product_id, coupang_product_id FROM barcode_catalog_map WHERE barcode = ${barcode} LIMIT 1
+    `
+    return rows[0] as any || null
+  } catch { return null }
+}
+
+export async function saveCatalogMap(barcode: string, naverProductId?: string | null, coupangProductId?: string | null) {
+  try {
+    await sql`
+      INSERT INTO barcode_catalog_map (barcode, naver_product_id, coupang_product_id)
+      VALUES (${barcode}, ${naverProductId ?? null}, ${coupangProductId ?? null})
+      ON CONFLICT (barcode) DO UPDATE SET
+        naver_product_id   = COALESCE(EXCLUDED.naver_product_id,   barcode_catalog_map.naver_product_id),
+        coupang_product_id = COALESCE(EXCLUDED.coupang_product_id, barcode_catalog_map.coupang_product_id),
+        mapped_at          = NOW()
+    `
+  } catch { /* non-critical */ }
+}
+
 // 제품 목록 검색
 export async function searchProducts(q: string, limit: number, offset: number) {
   if (q) {
