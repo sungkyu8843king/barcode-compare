@@ -100,13 +100,15 @@ export async function GET(
         // 저장된 카탈로그 매핑 조회
         const catalogMap = await getCatalogMap(barcode)
 
-        // 네이버: DB 제품명 우선(브랜드 포함), 없으면 바코드 fallback
-        // 쿠팡: 한국어 이름이 있으면 이름으로, 없으면 바코드로
+        // 네이버 먼저 → Naver 추론 브랜드를 쿠팡에 활용
         const coupangQuery = (product?.name && !nameIsEnglish) ? product.name : (product?.name || barcode)
-        const [naverResult, coupangResult] = await Promise.all([
-          searchByBarcode(barcode, product?.name || undefined, product?.brand || undefined, (product as any)?.spec || undefined, catalogMap?.naver_product_id),
-          searchCoupang(coupangQuery, barcode, product?.brand || undefined),
-        ])
+        const naverResult = await searchByBarcode(barcode, product?.name || undefined, product?.brand || undefined, (product as any)?.spec || undefined, catalogMap?.naver_product_id)
+
+        // 쿠팡: DB 브랜드 먼저, 결과 없으면 Naver 추론 브랜드로 재시도
+        let coupangResult = await searchCoupang(coupangQuery, barcode, product?.brand || undefined)
+        if (coupangResult.prices.length === 0 && naverResult.inferredBrand && naverResult.inferredBrand !== product?.brand) {
+          coupangResult = await searchCoupang(coupangQuery, barcode, naverResult.inferredBrand)
+        }
 
         naverResult.prices = [...naverResult.prices, ...coupangResult.prices]
 
