@@ -1,13 +1,10 @@
 /**
  * 네이버 쇼핑 카탈로그 API
  *
- * 일반 오픈 API(search/shop.json)와 별개로,
- * 네이버 비즈니스 파트너에게 제공되는 카탈로그 전용 API입니다.
+ * 네이버 쇼핑 파트너센터 (center.shopping.naver.com) 가입은 사업자 등록 필요.
+ * 현재는 미사용 — barcode_catalog_map 테이블에 productId를 자동 누적하는 방식으로 대체.
  *
- * 신청: https://developers.naver.com/products/naver-catalog/ (파트너 신청 필요)
- * 또는 '네이버 쇼핑 파트너센터' 에서 카탈로그 API 키 발급
- *
- * API_KEY 발급 후 .env.local에 추가:
+ * 향후 사업자 등록 시 .env.local에 추가:
  *   NAVER_CATALOG_CLIENT_ID=...
  *   NAVER_CATALOG_CLIENT_SECRET=...
  */
