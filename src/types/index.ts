@@ -31,7 +31,7 @@ export interface PlatformInfo {
 
 export const PLATFORMS: PlatformInfo[] = [
   { id: 'naver', name: '네이버쇼핑', color: '#03C75A' },
-  { id: 'coupang', name: '쿠팡', color: '#FEEB00' },
+  { id: 'coupang', name: '쿠팡', color: '#E8322B' },
   { id: '11st', name: '11번가', color: '#FF0000' },
   { id: 'gmarket', name: 'G마켓', color: '#FF6600' },
 ]

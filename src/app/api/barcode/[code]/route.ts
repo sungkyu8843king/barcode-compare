@@ -3,6 +3,7 @@ import { getProduct, upsertProduct, getRecentPrices, insertPrices } from '@/lib/
 import { getCachedPrices, setCachedPrices, getCachedProduct, setCachedProduct } from '@/lib/redis'
 import { searchByBarcode } from '@/lib/naver-shopping'
 import { lookupOpenFoodFacts, lookupUPCItemDB } from '@/lib/open-food-facts'
+import { searchCoupang } from '@/lib/coupang'
 import { auth } from '@/lib/auth'
 import { checkGuestLimit, checkUserLimit, DAILY_LIMITS } from '@/lib/rate-limit'
 import { BarcodeSearchResult, Product, PriceSnapshot } from '@/types'
@@ -90,7 +91,14 @@ export async function GET(
         await setCachedPrices(barcode, dbPrices)
       } else {
         const queryName = product?.name || barcode
-        const naverResult = await searchByBarcode(barcode, queryName)
+
+        // 네이버 + 쿠팡 병렬 조회
+        const [naverResult, coupangResult] = await Promise.all([
+          searchByBarcode(barcode, queryName),
+          searchCoupang(queryName !== barcode ? queryName : (product?.name || barcode), barcode),
+        ])
+
+        naverResult.prices = [...naverResult.prices, ...coupangResult.prices]
 
         if (naverResult.prices.length > 0) {
           // 제품이 DB에 없으면 네이버 결과에서 추출한 정보로 등록

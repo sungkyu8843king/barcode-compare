@@ -1,0 +1,60 @@
+import crypto from 'crypto'
+import axios from 'axios'
+import { PriceSnapshot } from '@/types'
+
+const ACCESS_KEY = process.env.COUPANG_ACCESS_KEY!
+const SECRET_KEY = process.env.COUPANG_SECRET_KEY!
+const BASE_URL = 'https://api-gateway.coupang.com'
+
+function generateHmac(method: string, path: string, query: string): { authorization: string; timestamp: string } {
+  const timestamp = Date.now().toString()
+  const message = `${timestamp}${method}${path}${query ? '?' + query : ''}`
+  const signature = crypto.createHmac('sha256', SECRET_KEY).update(message).digest('hex')
+  const authorization = `CEA algorithm=HmacSHA256, access-key=${ACCESS_KEY}, signed-date=${timestamp}, signature=${signature}`
+  return { authorization, timestamp }
+}
+
+export interface CoupangSearchResult {
+  prices: PriceSnapshot[]
+}
+
+export async function searchCoupang(keyword: string, barcode: string): Promise<CoupangSearchResult> {
+  if (!ACCESS_KEY || !SECRET_KEY) return { prices: [] }
+
+  const path = '/v2/providers/affiliate_open_api/apis/openapi/products/search'
+  const params = new URLSearchParams({ keyword, limit: '10', subId: barcode })
+  const query = params.toString()
+
+  const { authorization } = generateHmac('GET', path, query)
+
+  try {
+    const res = await axios.get(`${BASE_URL}${path}?${query}`, {
+      headers: { Authorization: authorization },
+      timeout: 5000,
+    })
+
+    const items = res.data?.data?.productData || []
+    const now = new Date().toISOString()
+
+    const prices: PriceSnapshot[] = items
+      .filter((item: any) => item.productPrice > 0)
+      .slice(0, 5)
+      .map((item: any, idx: number) => ({
+        id: idx + 100,
+        barcode,
+        platform: 'coupang' as const,
+        price: item.productPrice,
+        original_price: item.productPrice !== item.productPrice ? item.productPrice : null,
+        discount_rate: null,
+        url: item.productUrl,
+        seller_name: item.productName?.slice(0, 50) || '쿠팡',
+        in_stock: true,
+        fetched_at: now,
+      }))
+
+    return { prices }
+  } catch (e: any) {
+    console.error('[Coupang] 검색 실패:', e.response?.status, e.message)
+    return { prices: [] }
+  }
+}
