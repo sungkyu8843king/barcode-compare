@@ -112,10 +112,10 @@ export async function insertProductRequest(barcode: string, imageData: string | 
 export async function getNewProducts(limit = 12) {
   try {
     return await sql`
-      SELECT barcode, name, brand, image_url, updated_at
+      SELECT barcode, name, brand, image_url, created_at
       FROM products
       WHERE image_url IS NOT NULL
-      ORDER BY updated_at DESC
+      ORDER BY created_at DESC
       LIMIT ${limit}
     `
   } catch { return [] }
