@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
 
   // ── 1. 식품안전나라 C005 신규 제품 추가 ──
   try {
-    results.c005Added = await fetchFoodsafetyBatch('C005', 'c005_offset', 500)
+    results.c005Added = await fetchFoodsafetyBatch('C005', 'c005_offset', 200)
   } catch (e) {
     console.error('[cron] C005 실패:', e)
     results.c005Added = 0
@@ -25,23 +25,23 @@ export async function GET(req: NextRequest) {
 
   // ── 2. 건강기능식품 DB (HFDB) ──
   try {
-    results.hfdbAdded = await fetchFoodsafetyBatch('HFDB_04_01', 'hfdb_offset', 300)
+    results.hfdbAdded = await fetchFoodsafetyBatch('HFDB_04_01', 'hfdb_offset', 100)
   } catch (e) {
     console.error('[cron] HFDB 실패:', e)
     results.hfdbAdded = 0
   }
 
-  // ── 3. 이미지 없는 제품 → Naver 카탈로그 이미지 보강 (30개) ──
+  // ── 3. 이미지 없는 제품 → Naver 카탈로그 이미지 보강 (10개) ──
   try {
-    results.imageEnriched = await enrichMissingImages(30)
+    results.imageEnriched = await enrichMissingImages(10)
   } catch (e) {
     console.error('[cron] 이미지 보강 실패:', e)
     results.imageEnriched = 0
   }
 
-  // ── 4. 제품명 Claude 정제 (이름이 지저분한 것 20개) ──
+  // ── 4. 제품명 Claude 정제 (5개) ──
   try {
-    results.namesRefined = await refineMessyNames(20)
+    results.namesRefined = await refineMessyNames(5)
   } catch (e) {
     console.error('[cron] 이름 정제 실패:', e)
     results.namesRefined = 0

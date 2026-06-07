@@ -5,10 +5,9 @@
  *       (사용자가 실제로 스캔했으나 DB/Naver 모두 실패한 경우)
  */
 import { NextRequest, NextResponse } from 'next/server'
-import sql from '@/lib/db'
+import sql, { upsertProduct, saveCatalogMap } from '@/lib/db'
 import { searchByBarcode } from '@/lib/naver-shopping'
 import { lookupFoodsafety, lookupOpenFoodFacts } from '@/lib/open-food-facts'
-import { upsertProduct, saveCatalogMap } from '@/lib/db'
 import { parseProductName } from '@/lib/claude-ai'
 
 const CRON_SECRET = process.env.CRON_SECRET
@@ -132,9 +131,6 @@ export async function GET(req: NextRequest) {
 
 // 식품안전나라로 찾은 제품에 Naver 이미지/카탈로그ID 보강
 async function enrichFromNaver(barcode: string, name: string, brand: string | null, spec: string | null) {
-  const { default: sql } = await import('@/lib/db')
-  const { searchByBarcode, cleanNaverTitle, extractSpec } = await import('@/lib/naver-shopping')
-
   try {
     const result = await searchByBarcode(barcode, name, brand ?? undefined, spec)
     if (result.inferredImage || result.naverProductId) {
@@ -146,7 +142,6 @@ async function enrichFromNaver(barcode: string, name: string, brand: string | nu
         WHERE barcode = ${barcode}
       `
       if (result.naverProductId) {
-        const { saveCatalogMap } = await import('@/lib/db')
         saveCatalogMap(barcode, result.naverProductId).catch(() => {})
       }
     }
