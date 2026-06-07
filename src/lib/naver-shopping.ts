@@ -213,39 +213,44 @@ export async function searchByBarcode(
   }
 
   if (items.length === 0 && hasKoreanName) {
-    // ── 2순위: 브랜드 + 제품명 + 용량 조합 검색 ──
     const cleanedBrand = brand ? cleanBrand(brand) : null
     const nameWithSpec = spec ? `${productName} ${spec}` : productName!
-    const fullQuery = cleanedBrand ? `${cleanedBrand} ${nameWithSpec}` : nameWithSpec
-    const fullItems = await searchNaverShopping(fullQuery, 20)
-    const validated = filterByProductName(fullItems, productName!)
-    if (validated.length >= 2) {
-      items = validated
-    } else if (fullItems.length > 0) {
-      items = fullItems
-    }
 
-    // ── 3순위: 제품명+용량만 검색 ──
-    if (items.length === 0) {
-      const nameItems = await searchNaverShopping(nameWithSpec, 20)
-      const validated2 = filterByProductName(nameItems, productName!)
-      items = validated2.length > 0 ? validated2 : nameItems
+    // ── 2~3순위: 브랜드+제품명, 제품명 쿼리 결과를 모아 제품명 필터 통과한 것만 사용 ──
+    // (필터 미통과 결과를 그대로 노출하면 '직화'만 겹치는 엉뚱한 제품이 새어 나옴 → 반드시 거른다)
+    const collected: NaverShoppingItem[] = []
+    const queries = [
+      cleanedBrand ? `${cleanedBrand} ${nameWithSpec}` : null,
+      nameWithSpec,
+    ].filter((q): q is string => !!q)
+    for (const q of queries) {
+      collected.push(...await searchNaverShopping(q, 20))
+      if (filterByProductName(collected, productName!).length >= 5) break
     }
+    // productId+link 기준 중복 제거 후 이름 필터
+    const seen = new Set<string>()
+    const unique = collected.filter(it => {
+      const key = `${it.productId}|${it.link}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    items = filterByProductName(unique, productName!)
 
-    // ── 4순위: 줄인 제품명 검색 ──
+    // ── 4순위: 줄인 제품명 검색 (여전히 이름 필터) ──
     if (items.length === 0) {
       const short = shortenProductName(productName!)
       if (short && short !== productName) {
-        items = await searchNaverShopping(short, 20)
+        items = filterByProductName(await searchNaverShopping(short, 20), productName!)
       }
     }
 
-    // ── 5순위: Claude가 더 나은 검색어 생성 (결과 없을 때) ──
+    // ── 5순위: Claude가 더 나은 검색어 생성 (결과 없을 때, 이름 필터 유지) ──
     if (items.length === 0 && process.env.ANTHROPIC_API_KEY) {
       const betterQuery = await improveSearchQuery(barcode, productName!, brand || null, spec || null)
       if (betterQuery) {
         console.log(`[Claude] 개선된 쿼리: "${betterQuery}"`)
-        items = await searchNaverShopping(betterQuery, 20)
+        items = filterByProductName(await searchNaverShopping(betterQuery, 20), productName!)
       }
     }
   }
@@ -254,18 +259,18 @@ export async function searchByBarcode(
   if (items.length === 0) {
     const barcodeItems = await searchNaverShopping(barcode, 20)
     if (hasKoreanName && barcodeItems.length > 0) {
-      const validated3 = filterByProductName(barcodeItems, productName!)
-      items = validated3.length > 0 ? validated3 : []
+      items = filterByProductName(barcodeItems, productName!)
     } else {
       items = barcodeItems
     }
   }
 
-  // ── 7순위: GS1 브랜드 fallback ──
+  // ── 7순위: GS1 브랜드 fallback (한국어 제품명 있으면 이름 필터로 엉뚱한 제품 차단) ──
   if (items.length === 0) {
     const gs1Brand = brand || getBrandFromBarcode(barcode)
     if (gs1Brand) {
-      items = await searchNaverShopping(gs1Brand, 20)
+      const gs1Items = await searchNaverShopping(gs1Brand, 20)
+      items = hasKoreanName ? filterByProductName(gs1Items, productName!) : gs1Items
     }
   }
 
