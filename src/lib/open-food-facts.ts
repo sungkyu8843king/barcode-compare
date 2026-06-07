@@ -12,8 +12,8 @@ export async function lookupFoodsafety(barcode: string): Promise<Partial<Product
       { params: { BAR_CD: barcode }, timeout: 6000 }
     )
     const rows: any[] = res.data?.C005?.row ?? []
-    const item = rows.find((r: any) => r.BAR_CD?.trim() === barcode) || rows[0]
-    if (!item?.PRDLST_NM) return null
+    const item = rows.find((r: any) => r.BAR_CD?.trim() === barcode)
+    if (!item?.PRDLST_NM) return null  // 정확히 일치하는 바코드 없으면 null
 
     return {
       barcode,
