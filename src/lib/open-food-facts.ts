@@ -15,6 +15,27 @@ interface OFFProduct {
   status_verbose: string
 }
 
+// UPC Item DB - 무료 100회/일, 한국 제품 일부 커버
+export async function lookupUPCItemDB(barcode: string): Promise<Partial<Product> | null> {
+  try {
+    const res = await axios.get(`https://api.upcitemdb.com/prod/trial/lookup?upc=${barcode}`, {
+      timeout: 5000,
+      headers: { 'Accept': 'application/json' },
+    })
+    const item = res.data?.items?.[0]
+    if (!item?.title) return null
+    return {
+      barcode,
+      name: item.title,
+      brand: item.brand || null,
+      category: item.category || null,
+      image_url: item.images?.[0] || null,
+    }
+  } catch {
+    return null
+  }
+}
+
 // Open Food Facts - 무료 오픈 바코드 DB
 export async function lookupOpenFoodFacts(barcode: string): Promise<Partial<Product> | null> {
   try {

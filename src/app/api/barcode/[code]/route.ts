@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getProduct, upsertProduct, getRecentPrices, insertPrices } from '@/lib/db'
 import { getCachedPrices, setCachedPrices, getCachedProduct, setCachedProduct } from '@/lib/redis'
 import { searchByBarcode } from '@/lib/naver-shopping'
-import { lookupOpenFoodFacts } from '@/lib/open-food-facts'
+import { lookupOpenFoodFacts, lookupUPCItemDB } from '@/lib/open-food-facts'
 import { auth } from '@/lib/auth'
 import { checkGuestLimit, checkUserLimit, DAILY_LIMITS } from '@/lib/rate-limit'
 import { BarcodeSearchResult, Product, PriceSnapshot } from '@/types'
@@ -57,14 +57,16 @@ export async function GET(
       product = await getProduct(barcode) as Product | null
 
       if (!product) {
+        // OFF → UPC Item DB 순서로 조회
         const offProduct = await lookupOpenFoodFacts(barcode)
-        if (offProduct && offProduct.name) {
+        const extProduct = offProduct?.name ? offProduct : await lookupUPCItemDB(barcode)
+        if (extProduct?.name) {
           product = await upsertProduct({
             barcode,
-            name: offProduct.name,
-            brand: offProduct.brand,
-            category: offProduct.category,
-            image_url: offProduct.image_url,
+            name: extProduct.name,
+            brand: extProduct.brand,
+            category: extProduct.category,
+            image_url: extProduct.image_url,
           }) as Product
         }
       }
