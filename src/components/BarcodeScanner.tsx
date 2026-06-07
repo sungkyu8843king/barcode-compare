@@ -15,72 +15,133 @@ export default function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps)
 
   useEffect(() => {
     activeRef.current = true
-    let reader: import('@zxing/browser').BrowserMultiFormatReader | null = null
+    let stream: MediaStream | null = null
+    let animId: number | null = null
+    let zxingTimer: ReturnType<typeof setTimeout> | null = null
 
     async function start() {
       try {
-        const { BrowserMultiFormatReader } = await import('@zxing/browser')
-        const { DecodeHintType, BarcodeFormat } = await import('@zxing/library')
-
-        const hints = new Map()
-        hints.set(DecodeHintType.POSSIBLE_FORMATS, [
-          BarcodeFormat.EAN_13,
-          BarcodeFormat.EAN_8,
-          BarcodeFormat.UPC_A,
-          BarcodeFormat.UPC_E,
-          BarcodeFormat.CODE_128,
-          BarcodeFormat.CODE_39,
-        ])
-        hints.set(DecodeHintType.TRY_HARDER, true)
-
-        reader = new BrowserMultiFormatReader(hints, {
-          delayBetweenScanAttempts: 100,
+        // 고해상도 + 자동초점 요청
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: 'environment' },
+            width:  { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
         })
 
-        const devices = await BrowserMultiFormatReader.listVideoInputDevices()
-        // 후면 카메라 선택 (environment 포함된 것, 없으면 마지막 카메라)
-        const back = devices.find(d =>
-          d.label.toLowerCase().includes('back') ||
-          d.label.toLowerCase().includes('rear') ||
-          d.label.toLowerCase().includes('environment') ||
-          d.label.toLowerCase().includes('후면')
-        ) || devices[devices.length - 1]
+        const video = videoRef.current
+        if (!video || !activeRef.current) return
+        video.srcObject = stream
+        await video.play()
 
-        if (!back) {
-          setError('카메라를 찾을 수 없습니다.')
-          return
-        }
+        // 카메라가 안정되길 잠깐 기다림
+        await new Promise(r => setTimeout(r, 800))
+        if (!activeRef.current) return
 
         setHint('바코드를 가로로 맞춰주세요')
 
-        await reader.decodeFromVideoDevice(
-          back.deviceId,
-          videoRef.current!,
-          (result, err) => {
-            if (!activeRef.current) return
-            if (result) {
-              const text = result.getText().replace(/\D/g, '')
-              if (/^\d{8,14}$/.test(text)) {
-                activeRef.current = false
-                onScan(text)
-              }
-            }
-          }
-        )
-      } catch (e) {
-        console.error(e)
+        if ('BarcodeDetector' in window) {
+          runNativeDetector()
+        } else {
+          runZxing()
+        }
+      } catch {
         setError('카메라 접근 권한을 허용해 주세요.')
       }
+    }
+
+    // ── Android Chrome: 네이티브 BarcodeDetector (하드웨어 가속) ──
+    function runNativeDetector() {
+      const detector = new (window as any).BarcodeDetector({
+        formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39'],
+      })
+
+      async function detect() {
+        if (!activeRef.current || !videoRef.current) return
+        const video = videoRef.current
+        if (video.readyState < 2) {
+          animId = requestAnimationFrame(detect)
+          return
+        }
+
+        try {
+          const results: any[] = await detector.detect(video)
+          for (const r of results) {
+            const text = r.rawValue.replace(/\D/g, '')
+            if (/^\d{8,14}$/.test(text)) {
+              activeRef.current = false
+              onScan(text)
+              return
+            }
+          }
+        } catch { /* 인식 안 됨 */ }
+
+        if (activeRef.current) animId = requestAnimationFrame(detect)
+      }
+
+      detect()
+    }
+
+    // ── iOS Safari 등: @zxing/browser 폴백 (스캔 영역만 크롭) ──
+    async function runZxing() {
+      const { BrowserMultiFormatReader } = await import('@zxing/browser')
+      const { DecodeHintType, BarcodeFormat } = await import('@zxing/library')
+
+      const hints = new Map()
+      hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+        BarcodeFormat.EAN_13,
+        BarcodeFormat.EAN_8,
+        BarcodeFormat.UPC_A,
+        BarcodeFormat.UPC_E,
+      ])
+      hints.set(DecodeHintType.TRY_HARDER, true)
+
+      const reader = new BrowserMultiFormatReader(hints)
+      const canvas = document.createElement('canvas')
+      const ctx = canvas.getContext('2d')!
+
+      function decodeFrame() {
+        if (!activeRef.current || !videoRef.current) return
+        const video = videoRef.current
+        if (video.readyState < 2) {
+          zxingTimer = setTimeout(decodeFrame, 100)
+          return
+        }
+
+        // 화면 중앙 40% 영역만 크롭해서 디코딩 (노이즈 감소)
+        const vw = video.videoWidth
+        const vh = video.videoHeight
+        const cropH = Math.round(vh * 0.4)
+        const cropY = Math.round(vh * 0.3)
+
+        canvas.width = vw
+        canvas.height = cropH
+        ctx.drawImage(video, 0, cropY, vw, cropH, 0, 0, vw, cropH)
+
+        try {
+          const result = (reader as any).decodeFromCanvas(canvas)
+          const text = result.getText().replace(/\D/g, '')
+          if (/^\d{8,14}$/.test(text)) {
+            activeRef.current = false
+            onScan(text)
+            return
+          }
+        } catch { /* NotFoundException → 계속 */ }
+
+        zxingTimer = setTimeout(decodeFrame, 60)
+      }
+
+      decodeFrame()
     }
 
     start()
 
     return () => {
       activeRef.current = false
-      if (videoRef.current?.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream
-        stream.getTracks().forEach(t => t.stop())
-      }
+      if (animId !== null) cancelAnimationFrame(animId)
+      if (zxingTimer !== null) clearTimeout(zxingTimer)
+      stream?.getTracks().forEach(t => t.stop())
     }
   }, [onScan])
 
@@ -105,21 +166,15 @@ export default function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps)
 
       {/* 오버레이 */}
       <div className="absolute inset-0 pointer-events-none">
-        {/* 상/하 어두운 영역 */}
         <div className="absolute inset-x-0 top-0 bg-black/50" style={{ height: '30%' }} />
         <div className="absolute inset-x-0 bottom-0 bg-black/50" style={{ height: '30%' }} />
 
         {/* 스캔 박스 */}
-        <div
-          className="absolute left-4 right-4 border-2 border-white/80"
-          style={{ top: '30%', height: '40%' }}
-        >
-          {/* 코너 마커 */}
+        <div className="absolute left-4 right-4 border-2 border-white/80" style={{ top: '30%', height: '40%' }}>
           <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-blue-400" />
           <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-blue-400" />
           <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-blue-400" />
           <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-blue-400" />
-          {/* 스캔 라인 */}
           <div className="absolute inset-x-0 h-0.5 bg-blue-400 animate-scan" />
         </div>
 
