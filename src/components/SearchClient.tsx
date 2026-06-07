@@ -872,7 +872,11 @@ function PriceSection({
   )
 }
 
-type ShippingFilter = 'all' | 'free' | 'paid'
+type ShippingFilter = 'all' | 'free' | 'paid' | 'rocket'
+
+function isRocketShipping(p: PriceSnapshot) {
+  return !!(p.is_rocket || p.delivery_type === 'ROCKET' || p.delivery_type === 'ROCKET_FRESH' || p.delivery_type === 'DAWN')
+}
 
 function isFreeShipping(p: PriceSnapshot) {
   return p.is_rocket || p.shipping_fee === 0
@@ -884,6 +888,7 @@ function isPaidShipping(p: PriceSnapshot) {
 function applyShippingFilter(prices: PriceSnapshot[], filter: ShippingFilter) {
   if (filter === 'free') return prices.filter(isFreeShipping)
   if (filter === 'paid') return prices.filter(isPaidShipping)
+  if (filter === 'rocket') return prices.filter(isRocketShipping)
   return prices
 }
 
@@ -895,9 +900,10 @@ function PriceComparison({ prices }: { prices: PriceSnapshot[] }) {
   const coupangPrices = filteredPrices.filter(p => p.platform === 'coupang')
   const otherPrices = filteredPrices.filter(p => p.platform !== 'naver' && p.platform !== 'coupang')
 
-  // 무료/유료 개수 (버튼 카운트용, 필터 전 전체 기준)
+  // 무료/유료/로켓 개수 (버튼 카운트용, 필터 전 전체 기준)
   const freeCount = prices.filter(isFreeShipping).length
   const paidCount = prices.filter(isPaidShipping).length
+  const rocketCount = prices.filter(isRocketShipping).length
 
   // 총액(상품가+배송비) 기준 최저/최고
   const basePrices = filteredPrices.length > 0 ? filteredPrices : prices
@@ -918,22 +924,23 @@ function PriceComparison({ prices }: { prices: PriceSnapshot[] }) {
       {/* 배송비 필터 */}
       <div className="flex gap-2">
         {([
-          { value: 'all',  label: '전체',     count: prices.length },
-          { value: 'free', label: '무료배송만', count: freeCount },
-          { value: 'paid', label: '유료배송만', count: paidCount },
-        ] as { value: ShippingFilter; label: string; count: number }[]).map(opt => (
+          { value: 'all',    label: '전체',      count: prices.length, icon: '' },
+          { value: 'rocket', label: '로켓배송만', count: rocketCount,   icon: '🚀' },
+          { value: 'free',   label: '무료배송만', count: freeCount,     icon: '🚚' },
+          { value: 'paid',   label: '유료배송만', count: paidCount,     icon: '' },
+        ] as { value: ShippingFilter; label: string; count: number; icon: string }[]).map(opt => (
           <button
             key={opt.value}
             onClick={() => setShippingFilter(opt.value)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
               shippingFilter === opt.value
-                ? 'bg-blue-600 text-white'
+                ? opt.value === 'rocket' ? 'bg-[#E8322B] text-white' : 'bg-blue-600 text-white'
                 : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
             }`}
           >
-            {opt.value === 'free' && '🚚'}
+            {opt.icon && opt.icon}
             {opt.label}
-            <span className={`text-[10px] ${shippingFilter === opt.value ? 'text-blue-200' : 'text-gray-400'}`}>
+            <span className={`text-[10px] ${shippingFilter === opt.value ? 'text-white/70' : 'text-gray-400'}`}>
               {opt.count}
             </span>
           </button>
