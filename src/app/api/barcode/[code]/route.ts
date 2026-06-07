@@ -104,10 +104,13 @@ export async function GET(
         const coupangQuery = (product?.name && !nameIsEnglish) ? product.name : (product?.name || barcode)
         const naverResult = await searchByBarcode(barcode, product?.name || undefined, product?.brand || undefined, (product as any)?.spec || undefined, catalogMap?.naver_product_id)
 
-        // 쿠팡: DB 브랜드 먼저, 결과 없으면 Naver 추론 브랜드로 재시도
+        // 쿠팡: DB 브랜드 먼저, 결과 없으면 Naver 추론 브랜드로 재시도, 그래도 없으면 Naver 추론 전체 상품명으로 재시도
         let coupangResult = await searchCoupang(coupangQuery, barcode, product?.brand || undefined)
         if (coupangResult.prices.length === 0 && naverResult.inferredBrand && naverResult.inferredBrand !== product?.brand) {
           coupangResult = await searchCoupang(coupangQuery, barcode, naverResult.inferredBrand)
+        }
+        if (coupangResult.prices.length === 0 && naverResult.inferredName && naverResult.inferredName !== coupangQuery) {
+          coupangResult = await searchCoupang(naverResult.inferredName, barcode, undefined)
         }
 
         naverResult.prices = [...naverResult.prices, ...coupangResult.prices]
