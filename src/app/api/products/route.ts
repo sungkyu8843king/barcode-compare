@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
+import { upsertProduct, searchProducts } from '@/lib/db'
 import { invalidateBarcode } from '@/lib/redis'
 import { z } from 'zod'
 
@@ -11,7 +11,6 @@ const ProductSchema = z.object({
   image_url: z.string().url().nullable().optional(),
 })
 
-// 제품 등록/수정
 export async function POST(req: NextRequest) {
   const apiKey = req.headers.get('x-api-key')
   if (apiKey !== process.env.ADMIN_API_KEY) {
@@ -25,49 +24,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { data, error } = await supabaseAdmin
-    .from('products')
-    .upsert(parsed.data)
-    .select()
-    .single()
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-
+  const product = await upsertProduct(parsed.data)
   await invalidateBarcode(parsed.data.barcode)
-  return NextResponse.json(data)
+
+  return NextResponse.json(product)
 }
 
-// 제품 목록 조회 (검색)
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
-  const q = searchParams.get('q')
+  const q = searchParams.get('q') || ''
   const page = parseInt(searchParams.get('page') || '1')
   const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 100)
   const offset = (page - 1) * limit
 
-  let query = supabaseAdmin
-    .from('products')
-    .select('*', { count: 'exact' })
-    .range(offset, offset + limit - 1)
-    .order('created_at', { ascending: false })
-
-  if (q) {
-    query = query.ilike('name', `%${q}%`)
-  }
-
-  const { data, error, count } = await query
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
+  const rows = await searchProducts(q, limit, offset)
+  const total = rows.length > 0 ? Number((rows[0] as { total_count: string }).total_count) : 0
 
   return NextResponse.json({
-    data,
-    total: count,
+    data: rows,
+    total,
     page,
     limit,
-    totalPages: Math.ceil((count || 0) / limit),
+    totalPages: Math.ceil(total / limit),
   })
 }

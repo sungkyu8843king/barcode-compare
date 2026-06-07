@@ -1,15 +1,15 @@
 /**
- * Open Food Facts에서 한국 제품 데이터를 수집해 Supabase에 저장
+ * Open Food Facts에서 한국 제품 데이터를 수집해 Neon DB에 저장
  * 실행: npx ts-node --project tsconfig.scripts.json scripts/seed-from-open-food-facts.ts
  */
 
 import axios from 'axios'
-import { createClient } from '@supabase/supabase-js'
+import { neon } from '@neondatabase/serverless'
+import * as dotenv from 'dotenv'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+dotenv.config({ path: '.env.local' })
+
+const sql = neon(process.env.DATABASE_URL!)
 
 interface OFFSearchResponse {
   products: Array<{
@@ -19,7 +19,6 @@ interface OFFSearchResponse {
     brands: string
     categories_tags: string[]
     image_front_url: string
-    countries_tags: string[]
   }>
   page: number
   page_size: number
@@ -69,47 +68,39 @@ async function seed() {
       break
     }
 
-    const validProducts = data.products
-      .filter(p => {
-        const name = p.product_name_ko || p.product_name
-        const barcode = p.code
-        return (
-          name &&
-          barcode &&
-          /^\d{8,14}$/.test(barcode.replace(/^0+/, '') || barcode)
-        )
-      })
-      .map(p => ({
-        barcode: p.code.replace(/^0+/, '') || p.code,
-        name: (p.product_name_ko || p.product_name).trim().slice(0, 300),
-        brand: p.brands ? p.brands.split(',')[0].trim().slice(0, 100) : null,
-        category: p.categories_tags?.[0]?.replace('en:', '').slice(0, 100) || null,
-        image_url: p.image_front_url || null,
-      }))
+    const validProducts = data.products.filter(p => {
+      const name = p.product_name_ko || p.product_name
+      return name && p.code && /^\d{8,14}$/.test(p.code)
+    })
 
-    if (validProducts.length > 0) {
-      const { error } = await supabase
-        .from('products')
-        .upsert(validProducts, { onConflict: 'barcode', ignoreDuplicates: false })
+    for (const p of validProducts) {
+      try {
+        const name = (p.product_name_ko || p.product_name).trim().slice(0, 300)
+        const brand = p.brands ? p.brands.split(',')[0].trim().slice(0, 100) : null
+        const category = p.categories_tags?.[0]?.replace('en:', '').slice(0, 100) || null
+        const image_url = p.image_front_url || null
 
-      if (error) {
-        console.error('DB 저장 실패:', error.message)
-      } else {
-        totalInserted += validProducts.length
-        console.log(`  ✓ ${validProducts.length}개 저장 (총 ${totalInserted}개)`)
+        await sql`
+          INSERT INTO products (barcode, name, brand, category, image_url)
+          VALUES (${p.code}, ${name}, ${brand}, ${category}, ${image_url})
+          ON CONFLICT (barcode) DO NOTHING
+        `
+        totalInserted++
+      } catch {
+        totalSkipped++
       }
     }
 
-    totalSkipped += data.products.length - validProducts.length
+    console.log(`  ✓ 페이지 ${page} 완료 (총 ${totalInserted}개 저장)`)
 
     if (page * data.page_size >= data.count) break
     page++
 
-    // Rate limit 방지
     await new Promise(resolve => setTimeout(resolve, 1000))
   }
 
   console.log(`\n📊 완료: 저장 ${totalInserted}개, 스킵 ${totalSkipped}개`)
+  process.exit(0)
 }
 
 seed().catch(console.error)

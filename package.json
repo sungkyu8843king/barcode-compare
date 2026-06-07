@@ -10,11 +10,12 @@
     "seed": "ts-node --project tsconfig.scripts.json -r tsconfig-paths/register scripts/seed-from-open-food-facts.ts"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.107.0",
+    "@neondatabase/serverless": "^1.1.0",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.0",
     "axios": "^1.17.0",
     "cheerio": "^1.2.0",
+    "dotenv": "^17.4.2",
     "next": "16.2.7",
     "react": "19.2.4",
     "react-dom": "19.2.4",
