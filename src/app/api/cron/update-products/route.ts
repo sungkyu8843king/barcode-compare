@@ -101,15 +101,17 @@ async function fetchFoodsafetyBatch(): Promise<number> {
   }
 
   // 중복 제거 후 UPSERT
-  const seen = new Map<string, { barcode: string; name: string; brand: string | null }>()
+  const seen = new Map<string, { barcode: string; name: string; brand: string | null; spec: string | null }>()
   for (const item of items) {
     const barcode = (item.BAR_CD ?? '').trim().replace(/\x00/g, '')
     const name = (item.PRDLST_NM ?? '').trim().replace(/\x00/g, '')
     if (barcode && /^\d{8,14}$/.test(barcode) && name) {
+      const rawSpec = (item.CAPACITY ?? item.NET_WT ?? item.CONTENT ?? '').trim().replace(/\x00/g, '')
       seen.set(barcode, {
         barcode,
         name,
         brand: (item.BSSH_NM ?? '').trim().replace(/\x00/g, '') || null,
+        spec: rawSpec || null,
       })
     }
   }
@@ -117,9 +119,10 @@ async function fetchFoodsafetyBatch(): Promise<number> {
   let added = 0
   for (const p of seen.values()) {
     await sql`
-      INSERT INTO products (barcode, name, brand)
-      VALUES (${p.barcode}, ${p.name}, ${p.brand})
-      ON CONFLICT (barcode) DO NOTHING
+      INSERT INTO products (barcode, name, brand, spec)
+      VALUES (${p.barcode}, ${p.name}, ${p.brand}, ${p.spec})
+      ON CONFLICT (barcode) DO UPDATE SET
+        spec = COALESCE(EXCLUDED.spec, products.spec)
     `
     added++
   }

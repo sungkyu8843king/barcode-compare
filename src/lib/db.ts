@@ -19,15 +19,17 @@ export async function upsertProduct(product: {
   brand?: string | null
   category?: string | null
   image_url?: string | null
+  spec?: string | null   // 용량/중량 예: "315g", "1kg 2개입"
 }) {
   const rows = await sql`
-    INSERT INTO products (barcode, name, brand, category, image_url)
-    VALUES (${product.barcode}, ${product.name}, ${product.brand ?? null}, ${product.category ?? null}, ${product.image_url ?? null})
+    INSERT INTO products (barcode, name, brand, category, image_url, spec)
+    VALUES (${product.barcode}, ${product.name}, ${product.brand ?? null}, ${product.category ?? null}, ${product.image_url ?? null}, ${product.spec ?? null})
     ON CONFLICT (barcode) DO UPDATE SET
       name = EXCLUDED.name,
       brand = COALESCE(EXCLUDED.brand, products.brand),
       category = COALESCE(EXCLUDED.category, products.category),
       image_url = COALESCE(EXCLUDED.image_url, products.image_url),
+      spec = COALESCE(EXCLUDED.spec, products.spec),
       updated_at = NOW()
     RETURNING *
   `

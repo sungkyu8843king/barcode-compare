@@ -110,14 +110,16 @@ export async function searchByBarcode(
   barcode: string,
   productName?: string,
   brand?: string,
+  spec?: string | null,
 ): Promise<NaverSearchResult> {
   let items: NaverShoppingItem[] = []
   const hasKoreanName = productName && /[가-힣]/.test(productName)
 
   if (hasKoreanName) {
-    // ── 1순위: 브랜드 + 제품명 조합 검색 (가장 정확) ──
+    // ── 1순위: 브랜드 + 제품명 + 용량 조합 검색 (가장 정확) ──
     const cleanedBrand = brand ? cleanBrand(brand) : null
-    const fullQuery = cleanedBrand ? `${cleanedBrand} ${productName}` : productName!
+    const nameWithSpec = spec ? `${productName} ${spec}` : productName!
+    const fullQuery = cleanedBrand ? `${cleanedBrand} ${nameWithSpec}` : nameWithSpec
     const fullItems = await searchNaverShopping(fullQuery, 20)
     const validated = filterByProductName(fullItems, productName!)
     if (validated.length >= 2) {
@@ -126,9 +128,9 @@ export async function searchByBarcode(
       items = fullItems // 검증 통과 못해도 결과 있으면 사용
     }
 
-    // ── 2순위: 제품명만 검색 ──
+    // ── 2순위: 제품명+용량만 검색 (브랜드 없이) ──
     if (items.length === 0) {
-      const nameItems = await searchNaverShopping(productName!, 20)
+      const nameItems = await searchNaverShopping(nameWithSpec, 20)
       const validated2 = filterByProductName(nameItems, productName!)
       items = validated2.length > 0 ? validated2 : nameItems
     }

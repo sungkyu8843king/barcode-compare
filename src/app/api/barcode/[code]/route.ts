@@ -100,7 +100,7 @@ export async function GET(
         // 쿠팡: 한국어 이름이 있으면 이름으로, 없으면 바코드로
         const coupangQuery = (product?.name && !nameIsEnglish) ? product.name : (product?.name || barcode)
         const [naverResult, coupangResult] = await Promise.all([
-          searchByBarcode(barcode, product?.name || undefined, product?.brand || undefined),
+          searchByBarcode(barcode, product?.name || undefined, product?.brand || undefined, (product as any)?.spec || undefined),
           searchCoupang(coupangQuery, barcode, product?.brand || undefined),
         ])
 
