@@ -71,17 +71,15 @@ export interface NaverSearchResult {
 export async function searchByBarcode(barcode: string, productName?: string, englishNameHint?: string): Promise<NaverSearchResult> {
   let items: NaverShoppingItem[] = []
 
-  // 1순위: 제품명으로 검색 (DB에 한국어 이름 있을 때)
-  if (productName && productName !== barcode) {
+  // 1순위: 바코드로 검색 (가장 정확 - 정확한 제품 매칭)
+  items = await searchNaverShopping(barcode, 20)
+
+  // 2순위: 한국어 제품명으로 검색
+  if (items.length === 0 && productName && productName !== barcode) {
     items = await searchNaverShopping(productName, 20)
   }
 
-  // 2순위: 바코드 번호로 검색
-  if (items.length === 0) {
-    items = await searchNaverShopping(barcode, 20)
-  }
-
-  // 3순위: 영어 이름 힌트로 검색 (한국 바코드인데 DB에 영어 이름만 있을 때)
+  // 3순위: 영어 이름 힌트로 검색
   if (items.length === 0 && englishNameHint) {
     items = await searchNaverShopping(englishNameHint, 20)
   }
@@ -114,6 +112,7 @@ export async function searchByBarcode(barcode: string, productName?: string, eng
     seller_name: item.mallName,
     in_stock: true,
     fetched_at: now,
+    product_title: cleanNaverTitle(item.title),
   }))
 
   return { prices, inferredName, inferredBrand, inferredCategory, inferredImage }

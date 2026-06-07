@@ -536,9 +536,12 @@ function PriceSection({
               {idx + 1}
             </span>
 
-            {/* 판매자명 */}
+            {/* 판매자명 + 실제 판매 제품명 */}
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-gray-700 truncate">{price.seller_name || '판매자 정보 없음'}</p>
+              <p className="text-sm font-medium text-gray-800 truncate">{price.seller_name || '판매자 정보 없음'}</p>
+              {price.product_title && (
+                <p className="text-[11px] text-gray-500 truncate mt-0.5">{price.product_title}</p>
+              )}
               <div className="flex items-center gap-1 mt-0.5">
                 <ShippingBadge fee={price.shipping_fee} isRocket={price.is_rocket} />
                 {price.shipping_fee !== null && price.shipping_fee !== undefined && price.shipping_fee > 0 && (

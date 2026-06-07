@@ -90,15 +90,14 @@ export async function GET(
         prices = dbPrices as PriceSnapshot[]
         await setCachedPrices(barcode, dbPrices)
       } else {
-        const isKoreanBarcode = barcode.startsWith('880')
         const nameIsEnglish = product?.name ? !/[가-힣]/.test(product.name) : false
-        // 영어 이름이거나 이름 없으면 바코드로 검색, 한국어 이름 있으면 이름으로 검색
-        const queryName = (product?.name && !nameIsEnglish) ? product.name : barcode
 
-        // 네이버 + 쿠팡 병렬 조회
+        // 네이버: 바코드 우선, fallback으로 한국어 이름
+        // 쿠팡: 한국어 이름이 있으면 이름으로, 없으면 바코드로
+        const coupangQuery = (product?.name && !nameIsEnglish) ? product.name : (product?.name || barcode)
         const [naverResult, coupangResult] = await Promise.all([
-          searchByBarcode(barcode, queryName, isKoreanBarcode && nameIsEnglish ? product?.name : undefined),
-          searchCoupang(queryName !== barcode ? queryName : (product?.name || barcode), barcode),
+          searchByBarcode(barcode, product?.name || undefined),
+          searchCoupang(coupangQuery, barcode),
         ])
 
         naverResult.prices = [...naverResult.prices, ...coupangResult.prices]
@@ -120,7 +119,7 @@ export async function GET(
             })
             product = inserted as Product
             if (product) await setCachedProduct(barcode, product)
-          } else if (naverKoreanName && nameIsEnglish) {
+          } else if (naverKoreanName && nameIsEnglish && product) {
             // 기존 영어 이름 → 한국어로 교체, 이미지도 없으면 추가 (비동기)
             const newImageUrl = product.image_url || naverResult.inferredImage
             upsertProduct({ barcode, name: naverKoreanName, brand: product.brand, category: product.category, image_url: newImageUrl })
