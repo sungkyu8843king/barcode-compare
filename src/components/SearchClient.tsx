@@ -617,9 +617,20 @@ function PlatformBadge({ platform }: { platform: string }) {
   )
 }
 
-function ShippingBadge({ fee, isRocket }: { fee?: number | null; isRocket?: boolean }) {
-  if (isRocket) return (
-    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#E8322B] text-white">🚀 와우 무료</span>
+import type { DeliveryType } from '@/types'
+
+function ShippingBadge({ fee, isRocket, deliveryType }: { fee?: number | null; isRocket?: boolean; deliveryType?: DeliveryType }) {
+  if (deliveryType === 'ROCKET_FRESH') return (
+    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#00b493] text-white">🥬 로켓프레시</span>
+  )
+  if (deliveryType === 'DAWN') return (
+    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#5b21b6] text-white">🌙 새벽배송</span>
+  )
+  if (deliveryType === 'ROCKET_OVERSEAS') return (
+    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#1d4ed8] text-white">✈️ 해외직구</span>
+  )
+  if (isRocket || deliveryType === 'ROCKET') return (
+    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#E8322B] text-white">🚀 로켓배송</span>
   )
   if (fee === 0) return (
     <span className="text-[10px] font-medium text-green-600 bg-green-50 px-1.5 py-0.5 rounded">무료배송</span>
@@ -627,7 +638,6 @@ function ShippingBadge({ fee, isRocket }: { fee?: number | null; isRocket?: bool
   if (fee !== null && fee !== undefined && fee > 0) return (
     <span className="text-[10px] text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded">배송 {fee.toLocaleString()}원</span>
   )
-  // null = 네이버 배송비 미제공
   return <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">배송비 별도</span>
 }
 
@@ -718,7 +728,7 @@ function PriceSection({
                   <p className="text-[11px] text-gray-500 truncate mt-0.5">{price.product_title}</p>
                 )}
                 <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-                  <ShippingBadge fee={price.shipping_fee} isRocket={price.is_rocket} />
+                  <ShippingBadge fee={price.shipping_fee} isRocket={price.is_rocket} deliveryType={price.delivery_type} />
                   {perUnit && (
                     <span className="text-[10px] font-medium text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">
                       {qty}개입 · 개당 {perUnit.toLocaleString()}원
@@ -740,12 +750,14 @@ function PriceSection({
                     </p>
                   </>
                 ) : price.is_rocket ? (
-                  // 쿠팡 로켓 → 와우/일반 두 가지 표시
+                  // 쿠팡 로켓계열 → 와우/일반 두 가지 표시
                   <>
                     <p className={`font-bold ${idx === 0 ? color : 'text-gray-900'}`}>
                       {price.price.toLocaleString()}원
                     </p>
-                    <p className="text-[10px] text-[#E8322B] font-medium">와우 무료배송</p>
+                    <p className="text-[10px] font-medium" style={{ color: price.delivery_type === 'ROCKET_FRESH' ? '#00b493' : price.delivery_type === 'DAWN' ? '#5b21b6' : '#E8322B' }}>
+                      {price.delivery_type === 'ROCKET_FRESH' ? '🥬 로켓프레시 와우무료' : price.delivery_type === 'DAWN' ? '🌙 새벽배송 와우무료' : '🚀 와우 무료배송'}
+                    </p>
                     <p className="text-[10px] text-gray-400">일반 ~{(price.price + 3000).toLocaleString()}원</p>
                   </>
                 ) : price.shipping_fee === 0 ? (
@@ -881,7 +893,9 @@ function PriceComparison({ prices }: { prices: PriceSnapshot[] }) {
               상품 {lowest.price.toLocaleString()} + 배송 {lowest.shipping_fee!.toLocaleString()}원
             </p>
           ) : lowest.is_rocket ? (
-            <p className="text-[11px] text-red-500 font-medium mt-0.5">🚀 와우회원 무료배송</p>
+            <p className="text-[11px] font-medium mt-0.5" style={{ color: lowest.delivery_type === 'ROCKET_FRESH' ? '#00b493' : lowest.delivery_type === 'DAWN' ? '#5b21b6' : '#E8322B' }}>
+              {lowest.delivery_type === 'ROCKET_FRESH' ? '🥬 로켓프레시 와우무료' : lowest.delivery_type === 'DAWN' ? '🌙 새벽배송 와우무료' : '🚀 와우회원 무료배송'}
+            </p>
           ) : lowest.shipping_fee === 0 ? (
             <p className="text-[11px] text-green-600 font-medium mt-0.5">무료배송 포함</p>
           ) : (
@@ -899,7 +913,9 @@ function PriceComparison({ prices }: { prices: PriceSnapshot[] }) {
               상품 {highest.price.toLocaleString()} + 배송 {highest.shipping_fee!.toLocaleString()}원
             </p>
           ) : highest.is_rocket ? (
-            <p className="text-[11px] text-red-500 font-medium mt-0.5">🚀 와우회원 무료배송</p>
+            <p className="text-[11px] font-medium mt-0.5" style={{ color: highest.delivery_type === 'ROCKET_FRESH' ? '#00b493' : highest.delivery_type === 'DAWN' ? '#5b21b6' : '#E8322B' }}>
+              {highest.delivery_type === 'ROCKET_FRESH' ? '🥬 로켓프레시 와우무료' : highest.delivery_type === 'DAWN' ? '🌙 새벽배송 와우무료' : '🚀 와우회원 무료배송'}
+            </p>
           ) : highest.shipping_fee === 0 ? (
             <p className="text-[11px] text-green-600 font-medium mt-0.5">무료배송 포함</p>
           ) : (

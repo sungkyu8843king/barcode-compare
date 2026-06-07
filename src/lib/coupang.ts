@@ -1,6 +1,6 @@
 import crypto from 'crypto'
 import axios from 'axios'
-import { PriceSnapshot } from '@/types'
+import { PriceSnapshot, DeliveryType } from '@/types'
 
 const ACCESS_KEY = process.env.COUPANG_ACCESS_KEY!
 const SECRET_KEY = process.env.COUPANG_SECRET_KEY!
@@ -44,10 +44,18 @@ export async function searchCoupang(keyword: string, barcode: string, brand?: st
       .filter((item: any) => item.productPrice >= 100)
       .slice(0, 8)
       .map((item: any, idx: number) => {
-        const isRocket = !!(item.isRocket || item.badge === 'ROCKET' || item.deliveryType === 'ROCKET')
-        const isWow = !!(item.isWow || item.membershipType === 'WOW' || item.wowDelivery)
+        const rawType: string = (item.deliveryType || item.rocketType || '').toUpperCase()
+        let deliveryType: DeliveryType = null
+        if (rawType.includes('FRESH') || rawType.includes('ROCKET_FRESH')) deliveryType = 'ROCKET_FRESH'
+        else if (rawType.includes('OVERSEAS')) deliveryType = 'ROCKET_OVERSEAS'
+        else if (rawType.includes('ROCKET') || item.isRocket || item.badge === 'ROCKET') deliveryType = 'ROCKET'
+        else if (rawType.includes('DAWN')) deliveryType = 'DAWN'
+        // WOW membership → treat as ROCKET if no more specific type
+        if (!deliveryType && (item.isWow || item.membershipType === 'WOW' || item.wowDelivery)) deliveryType = 'ROCKET'
+
+        const isRocketType = deliveryType === 'ROCKET' || deliveryType === 'ROCKET_FRESH' || deliveryType === 'ROCKET_OVERSEAS'
         const isFreeShip = !!(item.isFreeShipping || item.freeDelivery)
-        const shippingFee = (isRocket || isWow || isFreeShip)
+        const shippingFee = (isRocketType || isFreeShip)
           ? 0
           : (typeof item.deliveryFee === 'number' ? item.deliveryFee : null)
         return {
@@ -62,7 +70,8 @@ export async function searchCoupang(keyword: string, barcode: string, brand?: st
           in_stock: true,
           fetched_at: now,
           shipping_fee: shippingFee,
-          is_rocket: isRocket || isWow,
+          is_rocket: isRocketType,
+          delivery_type: deliveryType,
           product_title: item.productName || null,
         }
       })

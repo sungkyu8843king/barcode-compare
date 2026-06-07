@@ -49,7 +49,7 @@ export async function searchNaverShopping(query: string, display = 20): Promise<
         'X-Naver-Client-Id': CLIENT_ID,
         'X-Naver-Client-Secret': CLIENT_SECRET,
       },
-      params: { query, display, sort: 'asc' },
+      params: { query, display, sort: 'sim' }, // 관련도순 - 낮은가격순은 사기업체가 상단 점령
       timeout: 5000,
     })
     return response.data.items
@@ -66,6 +66,41 @@ function extractKeyTerms(name: string): string[] {
   const words = cleaned.split(/\s+/).filter(w => w.length >= 2)
   // 첫 3개 단어를 핵심어로 (가장 식별력 높은 앞부분)
   return [...new Set(words.slice(0, 4))]
+}
+
+// 중량/용량을 g/ml 단위로 정규화
+function normalizeWeight(s: string): number {
+  const m = s.match(/([\d.]+)\s*(g|kg|ml|l)/i)
+  if (!m) return 0
+  const val = parseFloat(m[1])
+  const unit = m[2].toLowerCase()
+  if (unit === 'kg' || unit === 'l') return val * 1000
+  return val
+}
+
+// 알려진 spec(예: "315g")과 다른 중량이 제목에 있으면 제거
+function filterConflictingSpec(items: NaverShoppingItem[], spec: string | null): NaverShoppingItem[] {
+  if (!spec) return items
+  const specWeights = [...spec.matchAll(/([\d.]+)\s*(g|kg|ml|l)\b/gi)].map(m => normalizeWeight(m[0]))
+  if (specWeights.length === 0) return items
+
+  return items.filter(item => {
+    const title = cleanNaverTitle(item.title).toLowerCase()
+    const titleWeights = [...title.matchAll(/([\d.]+)\s*(g|kg|ml|l)\b/gi)].map(m => normalizeWeight(m[0]))
+    if (titleWeights.length === 0) return true // 제목에 중량 없으면 통과
+    // 제목 중량 중 spec과 5% 이내로 일치하는 것이 하나라도 있으면 통과
+    return titleWeights.some(tw => specWeights.some(sw => sw > 0 && Math.abs(tw - sw) / sw < 0.05))
+  })
+}
+
+// 카탈로그(productType=1) 우선, 그 다음 가격 오름차순
+function sortCatalogFirst(items: NaverShoppingItem[]): NaverShoppingItem[] {
+  return [...items].sort((a, b) => {
+    const aCat = a.productType === '1' ? 0 : 1
+    const bCat = b.productType === '1' ? 0 : 1
+    if (aCat !== bCat) return aCat - bCat
+    return parseInt(a.lprice) - parseInt(b.lprice)
+  })
 }
 
 // Naver 결과가 기대 제품과 일치하는지 검증
@@ -178,7 +213,9 @@ export async function searchByBarcode(
     }
   }
 
-  const validItems = items.filter(item => item.lprice && parseInt(item.lprice) >= 100)
+  const rawValid = items.filter(item => item.lprice && parseInt(item.lprice) >= 100)
+  const specFiltered = filterConflictingSpec(rawValid, spec || null)
+  const validItems = sortCatalogFirst(specFiltered.length > 0 ? specFiltered : rawValid)
   const now = new Date().toISOString()
 
   const first = validItems[0]

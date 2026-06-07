@@ -9,6 +9,8 @@ export interface Product {
   updated_at: string
 }
 
+export type DeliveryType = 'ROCKET' | 'ROCKET_FRESH' | 'ROCKET_OVERSEAS' | 'DAWN' | null
+
 export interface PriceSnapshot {
   id: number
   barcode: string
@@ -22,6 +24,7 @@ export interface PriceSnapshot {
   fetched_at: string
   shipping_fee?: number | null    // undefined = 정보 없음, 0 = 무료, >0 = 유료
   is_rocket?: boolean             // 쿠팡 로켓배송 여부
+  delivery_type?: DeliveryType    // 배송 타입 상세
   product_title?: string | null   // 실제 판매 제품명 (수량/옵션 확인용)
 }
 
