@@ -14,11 +14,12 @@ function generateHmac(method: string, path: string, query: string) {
 }
 
 async function rawSearch(keyword: string) {
+  if (!ACCESS_KEY || !SECRET_KEY) return { keyword, error: 'NO_KEYS' }
   const path = '/v2/providers/affiliate_open_api/apis/openapi/products/search'
   const params = new URLSearchParams({ keyword, limit: '10' })
   const query = params.toString()
-  const authorization = generateHmac('GET', path, query)
   try {
+    const authorization = generateHmac('GET', path, query)
     const res = await axios.get(`${BASE_URL}${path}?${query}`, {
       headers: { Authorization: authorization },
       timeout: 8000,
