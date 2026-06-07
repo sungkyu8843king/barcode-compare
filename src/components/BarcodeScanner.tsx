@@ -62,7 +62,6 @@ export default function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps)
               const text = result.getText().replace(/\D/g, '')
               if (/^\d{8,14}$/.test(text)) {
                 activeRef.current = false
-                reader?.reset()
                 onScan(text)
               }
             }
@@ -78,7 +77,10 @@ export default function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps)
 
     return () => {
       activeRef.current = false
-      reader?.reset()
+      if (videoRef.current?.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream
+        stream.getTracks().forEach(t => t.stop())
+      }
     }
   }, [onScan])
 
