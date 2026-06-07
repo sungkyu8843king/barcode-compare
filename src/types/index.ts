@@ -4,6 +4,7 @@ export interface Product {
   brand: string | null
   category: string | null
   image_url: string | null
+  spec: string | null      // 용량/중량/수량 예: "350g", "1kg", "12개입"
   created_at: string
   updated_at: string
 }

@@ -611,20 +611,17 @@ function PlatformBadge({ platform }: { platform: string }) {
 }
 
 function ShippingBadge({ fee, isRocket }: { fee?: number | null; isRocket?: boolean }) {
-  if (isRocket) {
-    return (
-      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#E8322B] text-white">
-        🚀 와우 무료배송
-      </span>
-    )
-  }
-  if (fee === null || fee === undefined) {
-    return <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">배송비 확인</span>
-  }
-  if (fee === 0) {
-    return <span className="text-[10px] font-medium text-green-600 bg-green-50 px-1.5 py-0.5 rounded">무료배송</span>
-  }
-  return <span className="text-[10px] text-red-500 bg-red-50 px-1.5 py-0.5 rounded">+배송 {fee.toLocaleString()}원</span>
+  if (isRocket) return (
+    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#E8322B] text-white">🚀 와우 무료</span>
+  )
+  if (fee === 0) return (
+    <span className="text-[10px] font-medium text-green-600 bg-green-50 px-1.5 py-0.5 rounded">무료배송</span>
+  )
+  if (fee !== null && fee !== undefined && fee > 0) return (
+    <span className="text-[10px] text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded">배송 {fee.toLocaleString()}원</span>
+  )
+  // null = 네이버 배송비 미제공
+  return <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">배송비 별도</span>
 }
 
 function extractQuantity(title: string): number {
@@ -724,20 +721,42 @@ function PriceSection({
               </div>
 
               {/* 가격 */}
-              <div className="text-right shrink-0">
+              <div className="text-right shrink-0 min-w-[80px]">
                 {hasShipping ? (
+                  // 배송비 있음 → 총액 표시
                   <>
                     <p className={`font-bold ${idx === 0 ? color : 'text-gray-900'}`}>
                       {totalPrice.toLocaleString()}원
                     </p>
                     <p className="text-[10px] text-gray-400">
-                      {price.price.toLocaleString()}+{price.shipping_fee!.toLocaleString()}
+                      상품 {price.price.toLocaleString()}+배송 {price.shipping_fee!.toLocaleString()}
                     </p>
                   </>
+                ) : price.is_rocket ? (
+                  // 쿠팡 로켓 → 와우/일반 두 가지 표시
+                  <>
+                    <p className={`font-bold ${idx === 0 ? color : 'text-gray-900'}`}>
+                      {price.price.toLocaleString()}원
+                    </p>
+                    <p className="text-[10px] text-[#E8322B] font-medium">와우 무료배송</p>
+                    <p className="text-[10px] text-gray-400">일반 ~{(price.price + 3000).toLocaleString()}원</p>
+                  </>
+                ) : price.shipping_fee === 0 ? (
+                  // 무료배송
+                  <>
+                    <p className={`font-bold ${idx === 0 ? color : 'text-gray-900'}`}>
+                      {price.price.toLocaleString()}원
+                    </p>
+                    <p className="text-[10px] text-green-600 font-medium">무료배송 포함</p>
+                  </>
                 ) : (
-                  <p className={`font-bold ${idx === 0 ? color : 'text-gray-900'}`}>
-                    {price.price.toLocaleString()}원
-                  </p>
+                  // 배송비 미제공 (네이버 등)
+                  <>
+                    <p className={`font-bold ${idx === 0 ? color : 'text-gray-900'}`}>
+                      {price.price.toLocaleString()}원
+                    </p>
+                    <p className="text-[10px] text-gray-400">+ 배송비 별도</p>
+                  </>
                 )}
               </div>
             </a>
@@ -745,11 +764,23 @@ function PriceSection({
         })}
       </div>
 
+      {/* 네이버 배송비 안내 */}
+      {!showCoupangNotice && prices.some(p => p.shipping_fee === null || p.shipping_fee === undefined) && (
+        <div className="flex items-start gap-2 bg-blue-50 border-t border-blue-100 px-5 py-3">
+          <span className="text-blue-400 text-xs mt-0.5 shrink-0">ℹ</span>
+          <p className="text-[11px] text-blue-600 leading-relaxed">
+            네이버쇼핑 배송비는 판매자마다 다릅니다 (보통 2,500~3,000원, 일정 금액 이상 무료).
+            <span className="font-medium"> 네이버플러스 회원</span>은 구매 금액의 최대 5% 적립 혜택이 있습니다.
+          </p>
+        </div>
+      )}
+
       {showCoupangNotice && (
         <div className="flex items-start gap-2 bg-yellow-50 border-t border-yellow-100 px-5 py-3">
           <span className="text-yellow-500 text-xs mt-0.5 shrink-0">⚠</span>
           <p className="text-[11px] text-yellow-700 leading-relaxed">
             쿠팡 링크를 통해 구매하시면 쿠팡 파트너스 활동의 일환으로 일정액의 수수료를 제공받을 수 있습니다.
+            <span className="font-medium"> 🚀 로켓배송</span> 상품은 쿠팡 와우 회원 기준 무료배송이며, 일반 회원은 3,000원 또는 19,800원 이상 무료입니다.
           </p>
         </div>
       )}
@@ -780,34 +811,40 @@ function PriceComparison({ prices }: { prices: PriceSnapshot[] }) {
       {/* 요약 카드 */}
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-green-50 border border-green-200 rounded-2xl p-4">
-          <p className="text-xs text-green-600 font-medium mb-1">
-            {lowestHasShip ? '총액 최저 (배송포함)' : '최저가'}
-          </p>
+          <p className="text-xs text-green-600 font-medium mb-1">최저가</p>
           <p className="text-2xl font-bold text-green-700">
             {lowestHasShip ? lowestTotal.toLocaleString() : lowest.price.toLocaleString()}원
           </p>
-          {lowestHasShip && (
+          {lowestHasShip ? (
             <p className="text-[11px] text-green-600 mt-0.5">
               상품 {lowest.price.toLocaleString()} + 배송 {lowest.shipping_fee!.toLocaleString()}원
             </p>
+          ) : lowest.is_rocket ? (
+            <p className="text-[11px] text-red-500 font-medium mt-0.5">🚀 와우회원 무료배송</p>
+          ) : lowest.shipping_fee === 0 ? (
+            <p className="text-[11px] text-green-600 font-medium mt-0.5">무료배송 포함</p>
+          ) : (
+            <p className="text-[11px] text-gray-400 mt-0.5">+ 배송비 별도</p>
           )}
           <p className="text-xs text-green-600 mt-1">{getPlatformName(lowest.platform)}</p>
-          <ShippingNotice fee={lowest.shipping_fee} isRocket={lowest.is_rocket} />
         </div>
         <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4">
-          <p className="text-xs text-orange-600 font-medium mb-1">
-            {highestHasShip ? '총액 최고 (배송포함)' : '최고가'}
-          </p>
+          <p className="text-xs text-orange-600 font-medium mb-1">최고가</p>
           <p className="text-2xl font-bold text-orange-700">
             {highestHasShip ? highestTotal.toLocaleString() : highest.price.toLocaleString()}원
           </p>
-          {highestHasShip && (
+          {highestHasShip ? (
             <p className="text-[11px] text-orange-600 mt-0.5">
               상품 {highest.price.toLocaleString()} + 배송 {highest.shipping_fee!.toLocaleString()}원
             </p>
+          ) : highest.is_rocket ? (
+            <p className="text-[11px] text-red-500 font-medium mt-0.5">🚀 와우회원 무료배송</p>
+          ) : highest.shipping_fee === 0 ? (
+            <p className="text-[11px] text-green-600 font-medium mt-0.5">무료배송 포함</p>
+          ) : (
+            <p className="text-[11px] text-gray-400 mt-0.5">+ 배송비 별도</p>
           )}
           <p className="text-xs text-orange-600 mt-1">{getPlatformName(highest.platform)}</p>
-          <ShippingNotice fee={highest.shipping_fee} isRocket={highest.is_rocket} />
         </div>
       </div>
 
