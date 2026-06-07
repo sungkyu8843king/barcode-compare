@@ -638,7 +638,7 @@ function ShippingBadge({ fee, isRocket, deliveryType }: { fee?: number | null; i
   if (fee !== null && fee !== undefined && fee > 0) return (
     <span className="text-[10px] text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded">배송 {fee.toLocaleString()}원</span>
   )
-  return <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">배송비 별도</span>
+  return <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">배송비 확인</span>
 }
 
 function extractQuantity(title: string): number {
@@ -833,7 +833,7 @@ function PriceSection({
                     <p className={`font-bold ${idx === 0 ? color : 'text-gray-900'}`}>
                       {price.price.toLocaleString()}원
                     </p>
-                    <p className="text-[10px] text-gray-400">+ 배송비 별도</p>
+                    <p className="text-[10px] text-gray-400">+ 배송비 확인</p>
                   </>
                 )}
                 {/* 묶음 개당가 vs 기준가 비교 라인 */}
@@ -972,7 +972,7 @@ function PriceComparison({ prices }: { prices: PriceSnapshot[] }) {
           ) : lowest.shipping_fee === 0 ? (
             <p className="text-[11px] text-green-600 font-medium mt-0.5">무료배송 포함</p>
           ) : (
-            <p className="text-[11px] text-gray-400 mt-0.5">+ 배송비 별도</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">+ 배송비 확인</p>
           )}
           <p className="text-xs text-green-600 mt-1">{getPlatformName(lowest.platform)}</p>
         </div>
@@ -992,7 +992,7 @@ function PriceComparison({ prices }: { prices: PriceSnapshot[] }) {
           ) : highest.shipping_fee === 0 ? (
             <p className="text-[11px] text-green-600 font-medium mt-0.5">무료배송 포함</p>
           ) : (
-            <p className="text-[11px] text-gray-400 mt-0.5">+ 배송비 별도</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">+ 배송비 확인</p>
           )}
           <p className="text-xs text-orange-600 mt-1">{getPlatformName(highest.platform)}</p>
         </div>
