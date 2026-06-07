@@ -200,8 +200,13 @@ export async function searchByBarcode(
     const query = productName || barcode
     const allItems = await searchNaverShopping(query, 40)
     const matched = allItems.filter(item => item.productId === knownNaverProductId)
-    if (matched.length > 0) {
+    // 2개 이상 매칭될 때만 좁히기 — 1개면 다른 결과도 포함
+    if (matched.length >= 2) {
       items = matched
+    } else if (matched.length === 1) {
+      items = [...matched, ...allItems.filter(item => item.productId !== knownNaverProductId)]
+    } else {
+      items = allItems
     }
   }
 
