@@ -1,5 +1,7 @@
 import axios from 'axios'
 import { NaverShoppingResponse, NaverShoppingItem, PriceSnapshot, Platform } from '@/types'
+import { pickBestNaverMatch, improveSearchQuery } from '@/lib/claude-ai'
+import { lookupCatalogByBarcode, getCatalogListings, isCatalogApiEnabled } from '@/lib/naver-catalog'
 
 const CLIENT_ID = process.env.NAVER_CLIENT_ID!
 const CLIENT_SECRET = process.env.NAVER_CLIENT_SECRET!
@@ -166,19 +168,45 @@ export async function searchByBarcode(
   let items: NaverShoppingItem[] = []
   const hasKoreanName = productName && /[가-힣]/.test(productName)
 
-  // ── 0순위: 기존에 확인된 카탈로그 productId가 있으면 그걸로 필터 ──
-  if (knownNaverProductId) {
+  // ── 0순위: 네이버 카탈로그 API (발급 시 바코드 직접 조회) ──
+  if (isCatalogApiEnabled) {
+    const catalog = await lookupCatalogByBarcode(barcode)
+    if (catalog?.productId) {
+      const listings = await getCatalogListings(catalog.productId)
+      if (listings && listings.length > 0) {
+        // 카탈로그 API 결과를 NaverShoppingItem 형식으로 변환
+        items = listings.map(l => ({
+          title: catalog.name,
+          link: l.url,
+          image: catalog.imageUrl || '',
+          lprice: l.price.toString(),
+          hprice: '',
+          mallName: l.mallName,
+          productId: catalog.productId,
+          productType: '1',
+          brand: catalog.brand || '',
+          maker: catalog.maker || '',
+          category1: catalog.category1 || '',
+          category2: catalog.category2 || '',
+          category3: catalog.category3 || '',
+          category4: '',
+        }))
+      }
+    }
+  }
+
+  // ── 1순위: 기존에 확인된 카탈로그 productId가 있으면 그걸로 필터 ──
+  if (items.length === 0 && knownNaverProductId) {
     const query = productName || barcode
     const allItems = await searchNaverShopping(query, 40)
     const matched = allItems.filter(item => item.productId === knownNaverProductId)
     if (matched.length > 0) {
       items = matched
     }
-    // 매핑된 ID로 결과가 0개면 (제품 단종/변경) 아래 일반 검색으로 fallback
   }
 
   if (items.length === 0 && hasKoreanName) {
-    // ── 1순위: 브랜드 + 제품명 + 용량 조합 검색 (가장 정확) ──
+    // ── 2순위: 브랜드 + 제품명 + 용량 조합 검색 ──
     const cleanedBrand = brand ? cleanBrand(brand) : null
     const nameWithSpec = spec ? `${productName} ${spec}` : productName!
     const fullQuery = cleanedBrand ? `${cleanedBrand} ${nameWithSpec}` : nameWithSpec
@@ -190,23 +218,32 @@ export async function searchByBarcode(
       items = fullItems
     }
 
-    // ── 2순위: 제품명+용량만 검색 (브랜드 없이) ──
+    // ── 3순위: 제품명+용량만 검색 ──
     if (items.length === 0) {
       const nameItems = await searchNaverShopping(nameWithSpec, 20)
       const validated2 = filterByProductName(nameItems, productName!)
       items = validated2.length > 0 ? validated2 : nameItems
     }
 
-    // ── 3순위: 줄인 제품명 검색 (제품명이 너무 길거나 특수한 경우) ──
+    // ── 4순위: 줄인 제품명 검색 ──
     if (items.length === 0) {
       const short = shortenProductName(productName!)
       if (short && short !== productName) {
         items = await searchNaverShopping(short, 20)
       }
     }
+
+    // ── 5순위: Claude가 더 나은 검색어 생성 (결과 없을 때) ──
+    if (items.length === 0 && process.env.ANTHROPIC_API_KEY) {
+      const betterQuery = await improveSearchQuery(barcode, productName!, brand || null, spec || null)
+      if (betterQuery) {
+        console.log(`[Claude] 개선된 쿼리: "${betterQuery}"`)
+        items = await searchNaverShopping(betterQuery, 20)
+      }
+    }
   }
 
-  // ── 4순위: 바코드 검색 ──
+  // ── 6순위: 바코드 검색 ──
   if (items.length === 0) {
     const barcodeItems = await searchNaverShopping(barcode, 20)
     if (hasKoreanName && barcodeItems.length > 0) {
@@ -217,11 +254,40 @@ export async function searchByBarcode(
     }
   }
 
-  // ── 5순위: GS1 브랜드 fallback ──
+  // ── 7순위: GS1 브랜드 fallback ──
   if (items.length === 0) {
     const gs1Brand = brand || getBrandFromBarcode(barcode)
     if (gs1Brand) {
       items = await searchNaverShopping(gs1Brand, 20)
+    }
+  }
+
+  // ── Claude 결과 검증: productId 매핑 없이 텍스트 검색만으로 찾은 경우 ──
+  // 결과가 있지만 카탈로그(productType=1)가 없거나 productName과 불일치 의심될 때
+  const hasCatalogItem = items.some(i => i.productType === '1')
+  const shouldValidateWithClaude =
+    !knownNaverProductId &&
+    !isCatalogApiEnabled &&
+    items.length > 0 &&
+    !hasCatalogItem &&
+    hasKoreanName &&
+    process.env.ANTHROPIC_API_KEY
+
+  if (shouldValidateWithClaude) {
+    const candidates = items.slice(0, 8).map(i => ({
+      title: cleanNaverTitle(i.title),
+      productId: i.productId,
+      brand: i.brand,
+      category: i.category3 || i.category2 || '',
+      lprice: i.lprice,
+    }))
+    const { productId: validatedId, confidence } = await pickBestNaverMatch(
+      barcode, productName!, spec || null, candidates
+    )
+    if (validatedId && confidence === 'high') {
+      console.log(`[Claude] 검증된 productId: ${validatedId}`)
+      const confirmed = items.filter(i => i.productId === validatedId)
+      if (confirmed.length > 0) items = confirmed
     }
   }
 
