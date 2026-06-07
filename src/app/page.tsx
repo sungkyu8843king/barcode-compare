@@ -1,250 +1,81 @@
-'use client'
+import { auth } from '@/lib/auth'
+import { signIn, signOut } from '@/lib/auth'
+import SearchClient from '@/components/SearchClient'
+import { DAILY_LIMITS } from '@/lib/rate-limit'
 
-import { useState, lazy, Suspense } from 'react'
-import Image from 'next/image'
-import { BarcodeSearchResult, PLATFORMS } from '@/types'
-
-const BarcodeScanner = lazy(() => import('@/components/BarcodeScanner'))
-
-export default function Home() {
-  const [barcode, setBarcode] = useState('')
-  const [result, setResult] = useState<BarcodeSearchResult | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [scanning, setScanning] = useState(false)
-
-  async function handleScanResult(code: string) {
-    setScanning(false)
-    setBarcode(code)
-    await search(code)
-  }
-
-  async function handleSearch(e: React.FormEvent) {
-    e.preventDefault()
-    await search(barcode.trim())
-  }
-
-  async function search(code: string) {
-    if (!code) return
-
-    setLoading(true)
-    setError(null)
-    setResult(null)
-
-    try {
-      const res = await fetch(`/api/barcode/${code}`)
-      const data = await res.json()
-
-      if (!res.ok) {
-        setError(data.error || '검색 중 오류가 발생했습니다.')
-        return
-      }
-
-      setResult(data)
-    } catch {
-      setError('네트워크 오류가 발생했습니다.')
-    } finally {
-      setLoading(false)
-    }
-  }
+export default async function Home() {
+  const session = await auth()
+  const user = session?.user as { name?: string; image?: string; email?: string; tier?: string } | undefined
+  const tier = user?.tier || 'guest'
+  const limit = DAILY_LIMITS[tier as keyof typeof DAILY_LIMITS] ?? DAILY_LIMITS.guest
 
   return (
     <main className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm">
-        <div className="max-w-2xl mx-auto px-4 py-4 flex items-center gap-3">
-          <span className="text-2xl">📦</span>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">바코드 가격 비교</h1>
-            <p className="text-xs text-gray-500">오프라인 vs 온라인 최저가 비교</p>
+      {/* 헤더 */}
+      <header className="bg-white shadow-sm sticky top-0 z-40">
+        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">📦</span>
+            <div>
+              <h1 className="text-lg font-bold text-gray-900">바코드 가격 비교</h1>
+              <p className="text-xs text-gray-400">오프라인 vs 온라인 최저가</p>
+            </div>
           </div>
+
+          {/* 로그인/유저 영역 */}
+          {user ? (
+            <div className="flex items-center gap-2">
+              <div className="text-right">
+                <p className="text-xs font-medium text-gray-700">{user.name}</p>
+                <p className="text-xs text-gray-400">
+                  {tier === 'donor' ? '기부회원' : '일반회원'} · 일 {limit}회
+                </p>
+              </div>
+              <form action={async () => { 'use server'; await signOut({ redirectTo: '/' }) }}>
+                <button className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1">로그아웃</button>
+              </form>
+            </div>
+          ) : (
+            <form action={async () => { 'use server'; await signIn('kakao', { redirectTo: '/' }) }}>
+              <button
+                type="submit"
+                className="flex items-center gap-1.5 bg-[#FEE500] text-[#191919] px-3 py-2 rounded-xl text-sm font-semibold hover:bg-[#F5DC00] transition-colors"
+              >
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                  <path fillRule="evenodd" clipRule="evenodd" d="M9 1C4.582 1 1 3.896 1 7.455c0 2.268 1.504 4.26 3.784 5.388l-.964 3.592c-.085.317.271.574.549.39L8.49 14.44a9.77 9.77 0 00.51.028c4.418 0 8-2.896 8-6.455C17 3.896 13.418 1 9 1z" fill="#191919"/>
+                </svg>
+                카카오 로그인
+              </button>
+            </form>
+          )}
         </div>
       </header>
 
-      {/* 카메라 스캐너 */}
-      {scanning && (
-        <Suspense fallback={null}>
-          <BarcodeScanner onScan={handleScanResult} onClose={() => setScanning(false)} />
-        </Suspense>
+      {/* 검색 한도 안내 배너 */}
+      {!user && (
+        <div className="bg-yellow-50 border-b border-yellow-200">
+          <p className="max-w-2xl mx-auto px-4 py-2 text-xs text-yellow-700 text-center">
+            비회원은 하루 {DAILY_LIMITS.guest}회 무료 · 카카오 로그인 시 {DAILY_LIMITS.free}회 · 기부 시 {DAILY_LIMITS.donor}회
+          </p>
+        </div>
       )}
 
-      <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
-        <form onSubmit={handleSearch} className="bg-white rounded-2xl shadow-sm p-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            바코드 번호 입력
-          </label>
-          <div className="flex gap-2">
-            {/* 카메라 버튼 */}
-            <button
-              type="button"
-              onClick={() => setScanning(true)}
-              className="bg-gray-900 text-white px-4 py-3 rounded-xl hover:bg-gray-700 transition-colors flex items-center gap-1.5 flex-shrink-0"
-              title="카메라로 스캔"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              <span className="text-sm font-medium hidden sm:block">스캔</span>
-            </button>
-            <input
-              type="text"
-              value={barcode}
-              onChange={e => setBarcode(e.target.value.replace(/\D/g, ''))}
-              placeholder="8~14자리 숫자"
-              className="flex-1 border border-gray-200 rounded-xl px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              maxLength={14}
-              inputMode="numeric"
-            />
-            <button
-              type="submit"
-              disabled={loading || barcode.length < 8}
-              className="bg-blue-600 text-white px-5 py-3 rounded-xl font-medium disabled:opacity-50 hover:bg-blue-700 transition-colors flex-shrink-0"
-            >
-              {loading ? '...' : '검색'}
-            </button>
-          </div>
-          <p className="mt-2 text-xs text-gray-400">
-            카메라 버튼을 눌러 바코드를 스캔하거나 번호를 직접 입력하세요
-          </p>
-        </form>
+      {/* 광고 배너 (상단) */}
+      <div className="max-w-2xl mx-auto px-4 pt-4">
+        <div className="bg-gray-200 rounded-xl h-16 flex items-center justify-center text-gray-400 text-xs">
+          광고 영역 (Google AdSense)
+        </div>
+      </div>
 
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 text-sm">
-            {error}
-          </div>
-        )}
+      {/* 검색 클라이언트 컴포넌트 */}
+      <SearchClient userEmail={user?.email} tier={tier} />
 
-        {result && (
-          <div className="space-y-4">
-            <div className="bg-white rounded-2xl shadow-sm p-5">
-              <div className="flex gap-4">
-                {result.product?.image_url && (
-                  <div className="relative w-20 h-20 flex-shrink-0">
-                    <Image
-                      src={result.product.image_url}
-                      alt={result.product.name}
-                      fill
-                      className="object-contain rounded-lg"
-                      unoptimized
-                    />
-                  </div>
-                )}
-                <div className="flex-1 min-w-0">
-                  {result.product ? (
-                    <>
-                      <h2 className="font-bold text-gray-900 text-lg leading-tight">
-                        {result.product.name}
-                      </h2>
-                      {result.product.brand && (
-                        <p className="text-sm text-gray-500 mt-1">{result.product.brand}</p>
-                      )}
-                      {result.product.category && (
-                        <span className="inline-block mt-2 text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
-                          {result.product.category}
-                        </span>
-                      )}
-                    </>
-                  ) : (
-                    <p className="text-gray-500 py-4">제품 정보를 찾을 수 없습니다</p>
-                  )}
-                  <p className="text-xs text-gray-400 mt-2">바코드: {barcode}</p>
-                </div>
-              </div>
-            </div>
-
-            {result.prices.length > 0 && (
-              <>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-green-50 border border-green-200 rounded-2xl p-4">
-                    <p className="text-xs text-green-600 font-medium mb-1">온라인 최저가</p>
-                    <p className="text-2xl font-bold text-green-700">
-                      {result.lowestPrice!.price.toLocaleString()}원
-                    </p>
-                    <p className="text-xs text-green-600 mt-1 truncate">
-                      {getPlatformName(result.lowestPrice!.platform)} · {result.lowestPrice!.seller_name}
-                    </p>
-                  </div>
-                  <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4">
-                    <p className="text-xs text-orange-600 font-medium mb-1">온라인 최고가</p>
-                    <p className="text-2xl font-bold text-orange-700">
-                      {result.highestPrice!.price.toLocaleString()}원
-                    </p>
-                    <p className="text-xs text-orange-600 mt-1 truncate">
-                      {getPlatformName(result.highestPrice!.platform)} · {result.highestPrice!.seller_name}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-                  <div className="px-5 py-4 border-b border-gray-100">
-                    <h3 className="font-semibold text-gray-900">
-                      온라인 판매처 ({result.prices.length}개)
-                    </h3>
-                  </div>
-                  <div className="divide-y divide-gray-50">
-                    {result.prices
-                      .sort((a, b) => a.price - b.price)
-                      .slice(0, 10)
-                      .map((price, idx) => (
-                        <a
-                          key={idx}
-                          href={price.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors"
-                        >
-                          <div className="flex items-center gap-3">
-                            <PlatformBadge platform={price.platform} />
-                            <span className="text-sm text-gray-600 truncate max-w-[150px]">
-                              {price.seller_name || '판매자 정보 없음'}
-                            </span>
-                          </div>
-                          <div className="text-right flex-shrink-0">
-                            <p className="font-bold text-gray-900">
-                              {price.price.toLocaleString()}원
-                            </p>
-                            {idx === 0 && (
-                              <span className="text-xs text-green-600 font-medium">최저가</span>
-                            )}
-                          </div>
-                        </a>
-                      ))}
-                  </div>
-                </div>
-              </>
-            )}
-
-            {result.prices.length === 0 && (
-              <div className="bg-white rounded-2xl shadow-sm p-8 text-center text-gray-400">
-                <p className="text-4xl mb-3">🔍</p>
-                <p>온라인 판매 정보를 찾을 수 없습니다</p>
-                <p className="text-sm mt-1">제품명으로 직접 검색해 보세요</p>
-              </div>
-            )}
-
-            <p className="text-xs text-center text-gray-400">
-              {result.cached ? '캐시된 결과' : '실시간 조회'} ·{' '}
-              {new Date(result.fetchedAt).toLocaleTimeString('ko-KR')} 기준
-            </p>
-          </div>
-        )}
+      {/* 하단 광고 */}
+      <div className="max-w-2xl mx-auto px-4 pb-8">
+        <div className="bg-gray-200 rounded-xl h-24 flex items-center justify-center text-gray-400 text-xs">
+          광고 영역 (Google AdSense)
+        </div>
       </div>
     </main>
-  )
-}
-
-function getPlatformName(platform: string) {
-  return PLATFORMS.find(p => p.id === platform)?.name || platform
-}
-
-function PlatformBadge({ platform }: { platform: string }) {
-  const info = PLATFORMS.find(p => p.id === platform)
-  return (
-    <span
-      className="text-xs font-bold px-2 py-0.5 rounded-full text-white"
-      style={{ backgroundColor: info?.color || '#666' }}
-    >
-      {info?.name || platform}
-    </span>
   )
 }

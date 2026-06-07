@@ -3,16 +3,45 @@ import { getProduct, upsertProduct, getRecentPrices, insertPrices } from '@/lib/
 import { getCachedPrices, setCachedPrices, getCachedProduct, setCachedProduct } from '@/lib/redis'
 import { searchByBarcode } from '@/lib/naver-shopping'
 import { lookupOpenFoodFacts } from '@/lib/open-food-facts'
+import { auth } from '@/lib/auth'
+import { checkGuestLimit, checkUserLimit, DAILY_LIMITS } from '@/lib/rate-limit'
 import { BarcodeSearchResult, Product, PriceSnapshot } from '@/types'
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ code: string }> }
 ) {
   const { code: barcode } = await params
 
   if (!/^\d{8,14}$/.test(barcode)) {
     return NextResponse.json({ error: '유효하지 않은 바코드 형식입니다.' }, { status: 400 })
+  }
+
+  // 검색 횟수 제한 체크
+  try {
+    const session = await auth()
+    if (session?.user?.email) {
+      const { allowed, remaining, tier } = await checkUserLimit(session.user.email)
+      if (!allowed) {
+        return NextResponse.json({
+          error: `일일 검색 한도 초과 (${tier === 'free' ? '로그인' : '기부'} 회원: ${DAILY_LIMITS[tier]}회/일)`,
+          limitExceeded: true,
+          tier,
+        }, { status: 429 })
+      }
+    } else {
+      const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || '127.0.0.1'
+      const { allowed, remaining } = await checkGuestLimit(ip)
+      if (!allowed) {
+        return NextResponse.json({
+          error: `비회원 일일 검색 한도 초과 (${DAILY_LIMITS.guest}회/일). 카카오 로그인 시 ${DAILY_LIMITS.free}회 이용 가능`,
+          limitExceeded: true,
+          tier: 'guest',
+        }, { status: 429 })
+      }
+    }
+  } catch (e) {
+    console.error('[rate-limit] 오류:', e)
   }
 
   try {
